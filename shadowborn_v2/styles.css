@@ -142,6 +142,40 @@ body {
     letter-spacing: 1px;
 }
 
+.btn-awaken {
+    background: rgba(12, 10, 24, 0.85);
+    border: 1px solid #38bdf8;
+    color: #38bdf8;
+    font-size: 10px;
+    font-weight: 800;
+    padding: 4px 8px;
+    border-radius: 6px;
+    cursor: pointer;
+    letter-spacing: 0.5px;
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.3);
+    transition: all 0.2s ease;
+}
+
+.btn-awaken:hover {
+    background: #0284c7;
+    color: #fff;
+    box-shadow: 0 0 15px rgba(56, 189, 248, 0.7);
+}
+
+.controls-legend {
+    margin-top: 8px;
+    font-size: 10px;
+    color: #94a3b8;
+    text-align: center;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    padding-top: 6px;
+}
+
+.controls-legend span {
+    color: #c4b5fd;
+    font-weight: 600;
+}
+
 .bar-box {
     margin-bottom: 8px;
 }
@@ -280,6 +314,7 @@ body {
 
 /* Specific Ability Accents */
 .card-punch { border-color: rgba(168, 85, 247, 0.4); }
+.card-kick { border-color: rgba(234, 179, 8, 0.5); }
 .card-blue { border-color: rgba(56, 189, 248, 0.4); }
 .card-red { border-color: rgba(239, 68, 68, 0.4); }
 .card-purple { border-color: rgba(192, 132, 252, 0.6); box-shadow: 0 0 15px rgba(168, 85, 247, 0.2); }

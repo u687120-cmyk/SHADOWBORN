@@ -13,6 +13,9 @@ import {
     calculateDodgeDisplacement,
     mapHandPositionToMovement,
     classifyHandLandmarks,
+    toggleSixEyesAwakening,
+    triggerJump,
+    processJump,
     COMBAT_CONSTANTS
 } from '../src/combatRules.js';
 
@@ -26,6 +29,8 @@ describe('SHADOWBORN V2 - Combat Rules Engine Tests', () => {
         assert.equal(state.status, 'PLAYING');
         assert.equal(state.player.isGuarding, false);
         assert.equal(state.player.isDodging, false);
+        assert.equal(state.player.isAwakened, false);
+        assert.equal(state.player.blindfoldRemoved, false);
     });
 
     test('2. Player Aura Punch deals valid damage in range and respects cooldown', () => {
@@ -175,14 +180,14 @@ describe('SHADOWBORN V2 - Combat Rules Engine Tests', () => {
 
     test('12. Movement calculation produces correct velocity and respects sprint', () => {
         const delta = 0.1;
-        const walk = calculateMovement({ x: 0, z: -1 }, false, delta);
+        const walk = calculateMovement({ x: 0, z: -1 }, false, false, delta);
         assert.ok(walk.dz < 0, 'Should move forward (-Z)');
         assert.equal(walk.dx, 0);
 
-        const sprint = calculateMovement({ x: 0, z: -1 }, true, delta);
+        const sprint = calculateMovement({ x: 0, z: -1 }, true, false, delta);
         assert.ok(Math.abs(sprint.dz) > Math.abs(walk.dz), 'Sprint should be faster than walk');
 
-        const idle = calculateMovement({ x: 0, z: 0 }, false, delta);
+        const idle = calculateMovement({ x: 0, z: 0 }, false, false, delta);
         assert.equal(idle.dx, 0);
         assert.equal(idle.dz, 0);
     });
@@ -233,27 +238,66 @@ describe('SHADOWBORN V2 - Combat Rules Engine Tests', () => {
 
     test('16. Hand landmark classification correctly identifies gestures', () => {
         // Two hands -> Hollow Purple
-        assert.equal(classifyHandLandmarks([], true), 'HOLLOW_PURPLE');
+        assert.equal(classifyHandLandmarks([], true, 0), 'HOLLOW_PURPLE');
+
+        // High velocity swipe -> Red Blast
+        assert.equal(classifyHandLandmarks([], false, 2.5), 'RED_BLAST');
 
         // Simulated closed fist landmarks (all fingertips near wrist at 0,0,0)
         const fistLandmarks = Array(21).fill(0).map((_, i) => {
             if ([8, 12, 16, 20].includes(i)) return { x: 0.1, y: 0.1, z: 0 }; // curled near wrist
             return { x: 0, y: 0, z: 0 };
         });
-        assert.equal(classifyHandLandmarks(fistLandmarks), 'AURA_PUNCH');
+        assert.equal(classifyHandLandmarks(fistLandmarks, false, 0), 'AURA_PUNCH');
 
         // Simulated pointing (index far from wrist, other fingers curled)
         const pointLandmarks = Array(21).fill(0).map((_, i) => {
             if (i === 8) return { x: 0.8, y: 0.8, z: 0 }; // extended index
             return { x: 0.1, y: 0.1, z: 0 };
         });
-        assert.equal(classifyHandLandmarks(pointLandmarks), 'BLUE_ORB');
+        assert.equal(classifyHandLandmarks(pointLandmarks, false, 0), 'BLUE_ORB');
 
         // Simulated open palm (all fingertips extended far from wrist)
         const palmLandmarks = Array(21).fill(0).map((_, i) => {
             if ([8, 12, 16, 20].includes(i)) return { x: 0.8, y: 0.8, z: 0 }; // all extended
             return { x: 0.1, y: 0.1, z: 0 };
         });
-        assert.equal(classifyHandLandmarks(palmLandmarks), 'INFINITY_GUARD');
+        assert.equal(classifyHandLandmarks(palmLandmarks, false, 0), 'INFINITY_GUARD');
+    });
+
+    test('17. Six Eyes Awakening toggles, removes blindfold, and boosts attack damage', () => {
+        const state = createInitialCombatState();
+        assert.equal(state.player.isAwakened, false);
+
+        toggleSixEyesAwakening(state);
+        assert.equal(state.player.isAwakened, true);
+        assert.equal(state.player.blindfoldRemoved, true);
+
+        // Execute punch while awakened - damage should be boosted by 1.3x multiplier
+        const basePunchDmg = COMBAT_CONSTANTS.ABILITIES.AURA_PUNCH.baseDamage;
+        const res = executePlayerAbility(state, 'AURA_PUNCH', 2.0);
+        assert.ok(res.damage > (basePunchDmg - state.enemy.defence), 'Awakened punch should deal boosted damage');
+    });
+
+    test('18. Jump physics triggers, elevates position, and lands properly', () => {
+        const state = createInitialCombatState();
+        assert.equal(state.player.isGrounded, true);
+
+        const jumped = triggerJump(state.player);
+        assert.equal(jumped, true);
+        assert.equal(state.player.isGrounded, false);
+        assert.ok(state.player.velocity.y > 0);
+
+        // Process jump delta
+        const status = processJump(state.player, 0.1);
+        assert.equal(status, 'AIRBORNE');
+        assert.ok(state.player.position.y > 0);
+
+        // Simulate falling back down
+        for (let i = 0; i < 15; i++) {
+            processJump(state.player, 0.1);
+        }
+        assert.equal(state.player.isGrounded, true);
+        assert.equal(state.player.position.y, 0);
     });
 });

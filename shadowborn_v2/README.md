@@ -33,12 +33,15 @@ The player character features a fully articulated 3D model with procedural skele
 | **Move Left** | `[A]` | Continuous Hand Left | Strafe left ($-X$) |
 | **Move Right** | `[D]` | Continuous Hand Right | Strafe right ($+X$) |
 | **Sprint** | `[SHIFT]` (Hold) | — | Increases movement speed from $4.8\text{ m/s}$ to $7.8\text{ m/s}$ |
-| **Phase Dodge** | `[SPACE]` | Click Dodge Card | Instant $4.5\text{m}$ displacement with $0.35\text{s}$ i-frame invulnerability |
+| **Jump** | `[SPACE]` (Stationary) | — | Vertical leap with gravity acceleration and landing impact |
+| **Phase Dodge** | `[SPACE] + [WASD]` | Click Dodge Card | Instant $4.5\text{m}$ directional displacement with $0.35\text{s}$ i-frame invulnerability |
 | **Aura Punch** | `[J]` | `[1]` / Click Card | Fast melee strike ($28$ Base DMG, $10$ Energy, $0.5\text{s}$ CD) |
+| **Roundhouse Kick** | `[H]` | Click Card | Sweeping rotational kick ($32$ Base DMG, $15$ Energy, $0.7\text{s}$ CD) |
 | **Lapse: Blue Orb** | `[K]` | `[2]` / Click Card | Gravitational projectile that pulls demon ($40$ Base DMG, $25$ Energy, $2.2\text{s}$ CD) |
 | **Reversal: Red Blast** | `[L]` | `[3]` / Click Card | Explosive repulsive blast with heavy knockback ($55$ Base DMG, $35$ Energy, $3.5\text{s}$ CD) |
 | **Hollow Purple** | `[U]` | `[4]` / Click Card | Colossal singularity sphere ($110$ Base DMG, $70$ Energy, $8.0\text{s}$ CD) |
 | **Infinity Guard** | `[I]` or `[C]` | Click Guard Card | Neutral limitless barrier that neutralizes $100\%$ incoming damage ($15\text{ Energy/s}$) |
+| **Awaken Six Eyes** | `[T]` | Click Awaken Button | Removes blindfold, illuminates cyan eyes & face, grants $+30\%$ speed & $+25\%$ damage buff |
 | **Pause / Resume** | `[ESCAPE]` | — | Pauses/resumes the combat cycle |
 
 ---
@@ -83,7 +86,7 @@ Run the full test suite from inside `shadowborn_v2/`:
 npm test
 ```
 
-### Coverage (16/16 Passing Tests):
+### Coverage (18/18 Passing Tests):
 1. Initial combat state initialization.
 2. Aura Punch damage, range validation, and cooldown enforcement.
 3. Out-of-range player attacks dealing 0 damage.
@@ -100,6 +103,8 @@ npm test
 14. Dodge displacement calculation respecting arena boundaries.
 15. Hand gesture continuous direction mapping and deadzone filtering.
 16. Hand landmark classification (Fist, Pointing, Open Palm, Two Hands).
+17. Six Eyes Awakening toggles, removes blindfold, and boosts attack damage.
+18. Jump physics triggers, elevates position, and lands properly.
 
 ---
 

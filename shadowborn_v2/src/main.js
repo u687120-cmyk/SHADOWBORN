@@ -1,8 +1,8 @@
 /**
  * SHADOWBORN V2 - Main Game Runtime
- * Complete 3D Anime Sorcerer vs Cursed Demon Combat Engine
- * Three.js, Procedural Rigging & Skeletal Animation, Continuous Gesture Movement,
- * Web Audio Synthesizer, Dynamic Camera Tracking & Arena Boundaries.
+ * Complete Satoru Gojo Character Model, Cel-Shaded Anime Aesthetics,
+ * Real Locomotion, Jump Physics, Cursed Techniques (Blue Attraction, Red Repulsion, Hollow Purple),
+ * MediaPipe Hand Tracking & Autonomous Demon AI.
  */
 
 import {
@@ -17,7 +17,10 @@ import {
     clampToArena,
     calculateDodgeDisplacement,
     mapHandPositionToMovement,
-    classifyHandLandmarks
+    classifyHandLandmarks,
+    toggleSixEyesAwakening,
+    triggerJump,
+    processJump
 } from './combatRules.js';
 
 // ==========================================
@@ -29,20 +32,19 @@ let scene, camera, renderer, clock;
 let playerGroup, sorcererBones = {};
 let demonGroup, demonBones = {}, demonSlamRing;
 let arenaRuneMesh, cameraTarget = new THREE.Vector3(0, 1.5, 0);
-let activeProjectiles = [], activeEffects = [];
+let activeProjectiles = [], activeParticles = [];
 let shakeDuration = 0, shakeIntensity = 0;
 
-// Locomotion & Input
+// Locomotion & Animation
 const keys = {
     KeyW: false, KeyS: false, KeyA: false, KeyD: false,
-    ShiftLeft: false, ShiftRight: false
+    ShiftLeft: false, ShiftRight: false, Space: false
 };
-let playerAnimState = 'IDLE'; // IDLE, WALK, SPRINT, PUNCH, BLUE, RED, PURPLE, GUARD, DODGE, HIT
+let playerAnimState = 'IDLE'; // IDLE, WALK, SPRINT, JUMP, LAND, PUNCH, KICK, BLUE, RED, PURPLE, GUARD, DODGE, AWAKEN
 let animTimer = 0;
 
 // Gesture State
-let webcamStream = null;
-let webcamVideo = null;
+let webcamStream = null, webcamVideo = null;
 let trackingCanvas = null, trackingCtx = null;
 let isWebcamEnabled = false;
 let handNormPos = { x: null, y: null };
@@ -74,17 +76,29 @@ class SoundFX {
         osc.connect(gain); gain.connect(this.ctx.destination);
         osc.start(now); osc.stop(now + 0.18);
     }
+    playKick() {
+        this.init();
+        const now = this.ctx.currentTime;
+        const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(180, now);
+        osc.frequency.exponentialRampToValueAtTime(30, now + 0.22);
+        gain.gain.setValueAtTime(0.45, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.22);
+        osc.connect(gain); gain.connect(this.ctx.destination);
+        osc.start(now); osc.stop(now + 0.22);
+    }
     playBlueOrb() {
         this.init();
         const now = this.ctx.currentTime;
         const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
         osc.type = 'sine';
         osc.frequency.setValueAtTime(350, now);
-        osc.frequency.linearRampToValueAtTime(750, now + 0.3);
-        gain.gain.setValueAtTime(0.3, now);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.35);
+        osc.frequency.linearRampToValueAtTime(780, now + 0.35);
+        gain.gain.setValueAtTime(0.35, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
         osc.connect(gain); gain.connect(this.ctx.destination);
-        osc.start(now); osc.stop(now + 0.35);
+        osc.start(now); osc.stop(now + 0.4);
     }
     playRedBlast() {
         this.init();
@@ -92,11 +106,11 @@ class SoundFX {
         const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
         osc.type = 'triangle';
         osc.frequency.setValueAtTime(160, now);
-        osc.frequency.exponentialRampToValueAtTime(35, now + 0.4);
-        gain.gain.setValueAtTime(0.5, now);
-        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.4);
+        osc.frequency.exponentialRampToValueAtTime(35, now + 0.45);
+        gain.gain.setValueAtTime(0.55, now);
+        gain.gain.exponentialRampToValueAtTime(0.01, now + 0.45);
         osc.connect(gain); gain.connect(this.ctx.destination);
-        osc.start(now); osc.stop(now + 0.4);
+        osc.start(now); osc.stop(now + 0.45);
     }
     playHollowPurple() {
         this.init();
@@ -105,12 +119,25 @@ class SoundFX {
             const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
             osc.type = (i % 2 === 0) ? 'sawtooth' : 'sine';
             osc.frequency.setValueAtTime(f, now);
-            osc.frequency.exponentialRampToValueAtTime(f * 2.5, now + 0.3);
-            osc.frequency.exponentialRampToValueAtTime(30, now + 1.0);
-            gain.gain.setValueAtTime(0.35, now);
-            gain.gain.exponentialRampToValueAtTime(0.001, now + 1.0);
+            osc.frequency.exponentialRampToValueAtTime(f * 2.8, now + 0.35);
+            osc.frequency.exponentialRampToValueAtTime(30, now + 1.1);
+            gain.gain.setValueAtTime(0.4, now);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 1.1);
             osc.connect(gain); gain.connect(this.ctx.destination);
-            osc.start(now); osc.stop(now + 1.0);
+            osc.start(now); osc.stop(now + 1.1);
+        });
+    }
+    playAwakening() {
+        this.init();
+        const now = this.ctx.currentTime;
+        [440, 554.37, 659.25, 880].forEach((f, i) => {
+            const osc = this.ctx.createOscillator(), gain = this.ctx.createGain();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(f, now + i * 0.05);
+            gain.gain.setValueAtTime(0.25, now + i * 0.05);
+            gain.gain.exponentialRampToValueAtTime(0.001, now + 1.5);
+            osc.connect(gain); gain.connect(this.ctx.destination);
+            osc.start(now + i * 0.05); osc.stop(now + 1.5);
         });
     }
     playGuard() {
@@ -187,7 +214,7 @@ export function initGame() {
 
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x06050e);
-    scene.fog = new THREE.FogExp2(0x080614, 0.032);
+    scene.fog = new THREE.FogExp2(0x080614, 0.030);
 
     camera = new THREE.PerspectiveCamera(52, width / height, 0.1, 100);
     camera.position.set(0, 3.8, 8.2);
@@ -196,22 +223,27 @@ export function initGame() {
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.appendChild(renderer.domElement);
     renderer.domElement.id = 'game-canvas';
 
     clock = new THREE.Clock();
 
-    // Lighting
-    const ambientLight = new THREE.AmbientLight(0x2d1f47, 1.4);
+    // Lighting (Cel anime rim & directional lights)
+    const ambientLight = new THREE.AmbientLight(0x281c40, 1.4);
     scene.add(ambientLight);
 
-    const dirLight = new THREE.DirectionalLight(0xa855f7, 1.8);
-    dirLight.position.set(6, 14, 8);
-    dirLight.castShadow = true;
-    scene.add(dirLight);
+    const keyLight = new THREE.DirectionalLight(0xb388ff, 1.8);
+    keyLight.position.set(6, 14, 8);
+    keyLight.castShadow = true;
+    scene.add(keyLight);
+
+    const rimLight = new THREE.DirectionalLight(0x38bdf8, 1.2);
+    rimLight.position.set(-6, 8, -6);
+    scene.add(rimLight);
 
     build3DArena();
-    buildGojoAnimeSorcerer();
+    buildSatoruGojo();
     buildCursedDemon();
 
     setupInputListeners();
@@ -230,8 +262,8 @@ function build3DArena() {
     floor.receiveShadow = true;
     scene.add(floor);
 
-    // Arena Perimeter Wall
-    const wallGeo = new THREE.RingGeometry(COMBAT_CONSTANTS.ARENA.RADIUS, COMBAT_CONSTANTS.ARENA.RADIUS + 0.6, 48);
+    // Glowing Arcane Perimeter Border
+    const wallGeo = new THREE.RingGeometry(COMBAT_CONSTANTS.ARENA.RADIUS, COMBAT_CONSTANTS.ARENA.RADIUS + 0.5, 48);
     const wallMat = new THREE.MeshBasicMaterial({ color: 0x7c3aed, side: THREE.DoubleSide });
     const wall = new THREE.Mesh(wallGeo, wallMat);
     wall.rotation.x = -Math.PI / 2;
@@ -262,7 +294,7 @@ function build3DArena() {
     arenaRuneMesh.position.y = 0.02;
     scene.add(arenaRuneMesh);
 
-    // Pillars with glowing crystals
+    // Stone Pillars around Arena
     for (let i = 0; i < 10; i++) {
         const angle = (i * Math.PI * 2) / 10;
         const x = Math.cos(angle) * (COMBAT_CONSTANTS.ARENA.RADIUS + 0.8);
@@ -283,129 +315,167 @@ function build3DArena() {
 }
 
 /**
- * Highly Detailed White-Haired Anime Sorcerer with Articulated Hierarchy
+ * HIGH-QUALITY SATORU GOJO CHARACTER MODEL
+ * Sculpted anime face, removable blindfold, radiant Six Eyes,
+ * multi-layered spiky white hair, high standing collar, and articulated bipedal limbs.
  */
-function buildGojoAnimeSorcerer() {
+function buildSatoruGojo() {
     playerGroup = new THREE.Group();
-    playerGroup.position.set(combatState.player.position.x, 0, combatState.player.position.z);
+    playerGroup.position.set(combatState.player.position.x, combatState.player.position.y, combatState.player.position.z);
 
-    const uniformMat = new THREE.MeshStandardMaterial({ color: 0x0c0b14, roughness: 0.5, metalness: 0.3 });
-    const skinMat = new THREE.MeshStandardMaterial({ color: 0xffedd5, roughness: 0.3 });
-    const hairMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.2, metalness: 0.1 });
-    const bootMat = new THREE.MeshStandardMaterial({ color: 0x050508, roughness: 0.6 });
+    const uniformMat = new THREE.MeshStandardMaterial({ color: 0x09090f, roughness: 0.45, metalness: 0.25 });
+    const skinMat = new THREE.MeshStandardMaterial({ color: 0xffe4d6, roughness: 0.35 });
+    const hairMat = new THREE.MeshStandardMaterial({ color: 0xf8fafc, roughness: 0.15, metalness: 0.1 });
+    const bootMat = new THREE.MeshStandardMaterial({ color: 0x040407, roughness: 0.5 });
 
-    // Pelvis (root of movement)
-    const pelvisGeo = new THREE.BoxGeometry(0.5, 0.25, 0.3);
-    const pelvis = new THREE.Mesh(pelvisGeo, uniformMat);
+    // Pelvis (root of bipedal kinematics)
+    const pelvis = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.26, 0.32), uniformMat);
     pelvis.position.y = 1.05;
     playerGroup.add(pelvis);
     sorcererBones.pelvis = pelvis;
 
-    // Torso / Chest
-    const chestGeo = new THREE.CylinderGeometry(0.38, 0.28, 0.7, 10);
-    const chest = new THREE.Mesh(chestGeo, uniformMat);
-    chest.position.y = 0.45;
+    // Torso / High-collar Jujutsu Tunic
+    const chest = new THREE.Mesh(new THREE.CylinderGeometry(0.40, 0.29, 0.72, 12), uniformMat);
+    chest.position.y = 0.46;
+    chest.castShadow = true;
     pelvis.add(chest);
     sorcererBones.chest = chest;
 
-    // High Standing Collar
-    const collarGeo = new THREE.CylinderGeometry(0.24, 0.26, 0.32, 10, 1, true);
-    const collar = new THREE.Mesh(collarGeo, uniformMat);
-    collar.position.y = 0.45;
+    // Tall Standing Stiff Collar (Frames the neck & jaw)
+    const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.27, 0.36, 12, 1, true), uniformMat);
+    collar.position.y = 0.46;
     chest.add(collar);
 
-    // Head
-    const headGeo = new THREE.SphereGeometry(0.22, 16, 16);
-    const head = new THREE.Mesh(headGeo, skinMat);
-    head.position.y = 0.48;
-    chest.add(head);
-    sorcererBones.head = head;
+    // Sculpted Anime Head & Face
+    const headGroup = new THREE.Group();
+    headGroup.position.y = 0.49;
+    chest.add(headGroup);
+    sorcererBones.head = headGroup;
 
-    // Expressive Glowing Blue "Six Eyes"
-    const eyeMat = new THREE.MeshBasicMaterial({ color: 0x38bdf8 });
-    const lEye = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 8), eyeMat);
-    lEye.position.set(-0.08, 0.02, -0.2);
-    const rEye = new THREE.Mesh(new THREE.SphereGeometry(0.04, 8, 8), eyeMat);
-    rEye.position.set(0.08, 0.02, -0.2);
-    head.add(lEye); head.add(rEye);
+    // Cranium
+    const cranium = new THREE.Mesh(new THREE.SphereGeometry(0.23, 16, 16), skinMat);
+    headGroup.add(cranium);
 
-    // Dark Blindfold Wrap
-    const blindfoldGeo = new THREE.CylinderGeometry(0.23, 0.23, 0.08, 16);
-    const blindfold = new THREE.Mesh(blindfoldGeo, new THREE.MeshBasicMaterial({ color: 0x09090b }));
+    // Sculpted Anime Chin & Tapered Jaw
+    const chin = new THREE.Mesh(new THREE.ConeGeometry(0.18, 0.25, 5), skinMat);
+    chin.position.set(0, -0.15, 0.08);
+    chin.rotation.x = 0.4;
+    headGroup.add(chin);
+
+    // Brilliant Cyan-Blue "Six Eyes" (Rikugan)
+    const eyeMat = new THREE.MeshBasicMaterial({ color: 0x00f0ff });
+    const pupilMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+
+    const lEye = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 8), eyeMat);
+    lEye.position.set(-0.08, 0.02, -0.21);
+    const lPupil = new THREE.Mesh(new THREE.SphereGeometry(0.015, 6, 6), pupilMat);
+    lPupil.position.set(0, 0, -0.04);
+    lEye.add(lPupil);
+
+    const rEye = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 8), eyeMat);
+    rEye.position.set(0.08, 0.02, -0.21);
+    const rPupil = new THREE.Mesh(new THREE.SphereGeometry(0.015, 6, 6), pupilMat);
+    rPupil.position.set(0, 0, -0.04);
+    rEye.add(rPupil);
+
+    headGroup.add(lEye);
+    headGroup.add(rEye);
+    sorcererBones.lEye = lEye;
+    sorcererBones.rEye = rEye;
+
+    // Point Light illuminating face with glowing blue Six Eyes aura
+    const sixEyesLight = new THREE.PointLight(0x00f0ff, 0.8, 2.5);
+    sixEyesLight.position.set(0, 0.05, -0.3);
+    headGroup.add(sixEyesLight);
+    sorcererBones.eyesLight = sixEyesLight;
+
+    // Removable Black Blindfold Wrap
+    const blindfoldGeo = new THREE.CylinderGeometry(0.24, 0.24, 0.09, 16);
+    const blindfoldMat = new THREE.MeshStandardMaterial({ color: 0x0a0a0c, roughness: 0.6 });
+    const blindfold = new THREE.Mesh(blindfoldGeo, blindfoldMat);
     blindfold.position.set(0, 0.02, 0);
-    head.add(blindfold);
+    headGroup.add(blindfold);
+    sorcererBones.blindfold = blindfold;
 
-    // Multi-Layer Spiky White Hair Locks
+    // Multi-Layered Spiky Snow-White Hair
     const hairGroup = new THREE.Group();
-    // Forehead bangs
-    for (let i = -2; i <= 2; i++) {
-        const bang = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.26, 5), hairMat);
-        bang.position.set(i * 0.07, 0.1, -0.18);
-        bang.rotation.set(-0.5, 0, i * 0.25);
+    // Forehead bangs (spikes swept across the brow)
+    for (let i = -3; i <= 3; i++) {
+        const bang = new THREE.Mesh(new THREE.ConeGeometry(0.065, 0.28, 5), hairMat);
+        bang.position.set(i * 0.065, 0.12, -0.19);
+        bang.rotation.set(-0.55, 0, i * 0.22);
         hairGroup.add(bang);
     }
-    // Crown Spikes
-    for (let a = 0; a < 8; a++) {
-        const ang = (a * Math.PI * 2) / 8;
-        const spike = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.38, 5), hairMat);
-        spike.position.set(Math.cos(ang) * 0.14, 0.22, Math.sin(ang) * 0.14);
-        spike.rotation.set(Math.sin(ang) * 0.4, 0, -Math.cos(ang) * 0.4);
+    // High Crown & Spiky Top Locks
+    for (let a = 0; a < 9; a++) {
+        const ang = (a * Math.PI * 2) / 9;
+        const spike = new THREE.Mesh(new THREE.ConeGeometry(0.095, 0.42, 5), hairMat);
+        spike.position.set(Math.cos(ang) * 0.16, 0.24, Math.sin(ang) * 0.16);
+        spike.rotation.set(Math.sin(ang) * 0.42, 0, -Math.cos(ang) * 0.42);
         hairGroup.add(spike);
     }
-    head.add(hairGroup);
+    // Side & Back Tufts
+    for (let b = 0; b < 6; b++) {
+        const ang = (b * Math.PI) / 5 + Math.PI * 0.5;
+        const tuft = new THREE.Mesh(new THREE.ConeGeometry(0.075, 0.32, 5), hairMat);
+        tuft.position.set(Math.cos(ang) * 0.18, 0.08, Math.sin(ang) * 0.18);
+        tuft.rotation.set(0.2, 0, -Math.cos(ang) * 0.3);
+        hairGroup.add(tuft);
+    }
+    headGroup.add(hairGroup);
 
-    // ARMS & HANDS (Articulated Left & Right)
+    // ARMS & HANDS (Articulated Shoulders, Elbows, Fists)
+    const armGeo = new THREE.CylinderGeometry(0.09, 0.08, 0.44, 8);
     // Left Arm
     const shoulderL = new THREE.Group();
-    shoulderL.position.set(-0.46, 0.32, 0);
+    shoulderL.position.set(-0.48, 0.34, 0);
     chest.add(shoulderL);
     sorcererBones.shoulderL = shoulderL;
 
-    const armGeo = new THREE.CylinderGeometry(0.09, 0.08, 0.42, 8);
     const upperArmL = new THREE.Mesh(armGeo, uniformMat);
-    upperArmL.position.y = -0.21;
+    upperArmL.position.y = -0.22;
     shoulderL.add(upperArmL);
 
     const forearmL = new THREE.Group();
-    forearmL.position.y = -0.21;
+    forearmL.position.y = -0.22;
     upperArmL.add(forearmL);
     sorcererBones.forearmL = forearmL;
 
     const lowerArmL = new THREE.Mesh(armGeo, uniformMat);
-    lowerArmL.position.y = -0.21;
+    lowerArmL.position.y = -0.22;
     forearmL.add(lowerArmL);
 
-    const handL = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 8), skinMat);
-    handL.position.y = -0.24;
+    const handL = new THREE.Mesh(new THREE.SphereGeometry(0.085, 8, 8), skinMat);
+    handL.position.y = -0.25;
     forearmL.add(handL);
     sorcererBones.handL = handL;
 
     // Right Arm
     const shoulderR = new THREE.Group();
-    shoulderR.position.set(0.46, 0.32, 0);
+    shoulderR.position.set(0.48, 0.34, 0);
     chest.add(shoulderR);
     sorcererBones.shoulderR = shoulderR;
 
     const upperArmR = new THREE.Mesh(armGeo, uniformMat);
-    upperArmR.position.y = -0.21;
+    upperArmR.position.y = -0.22;
     shoulderR.add(upperArmR);
 
     const forearmR = new THREE.Group();
-    forearmR.position.y = -0.21;
+    forearmR.position.y = -0.22;
     upperArmR.add(forearmR);
     sorcererBones.forearmR = forearmR;
 
     const lowerArmR = new THREE.Mesh(armGeo, uniformMat);
-    lowerArmR.position.y = -0.21;
+    lowerArmR.position.y = -0.22;
     forearmR.add(lowerArmR);
 
-    const handR = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 8), skinMat);
-    handR.position.y = -0.24;
+    const handR = new THREE.Mesh(new THREE.SphereGeometry(0.085, 8, 8), skinMat);
+    handR.position.y = -0.25;
     forearmR.add(handR);
     sorcererBones.handR = handR;
 
-    // LEGS & BOOTS (Articulated Left & Right)
-    const legGeo = new THREE.CylinderGeometry(0.12, 0.1, 0.5, 8);
+    // LEGS & BOOTS (Articulated Hips, Knees, Feet)
+    const legGeo = new THREE.CylinderGeometry(0.12, 0.1, 0.52, 8);
     // Left Leg
     const hipL = new THREE.Group();
     hipL.position.set(-0.18, -0.1, 0);
@@ -413,20 +483,20 @@ function buildGojoAnimeSorcerer() {
     sorcererBones.hipL = hipL;
 
     const thighL = new THREE.Mesh(legGeo, uniformMat);
-    thighL.position.y = -0.25;
+    thighL.position.y = -0.26;
     hipL.add(thighL);
 
     const kneeL = new THREE.Group();
-    kneeL.position.y = -0.25;
+    kneeL.position.y = -0.26;
     thighL.add(kneeL);
     sorcererBones.kneeL = kneeL;
 
     const calfL = new THREE.Mesh(legGeo, uniformMat);
-    calfL.position.y = -0.25;
+    calfL.position.y = -0.26;
     kneeL.add(calfL);
 
-    const bootL = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.15, 0.28), bootMat);
-    bootL.position.set(0, -0.3, -0.05);
+    const bootL = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.16, 0.3), bootMat);
+    bootL.position.set(0, -0.32, -0.06);
     kneeL.add(bootL);
 
     // Right Leg
@@ -436,20 +506,20 @@ function buildGojoAnimeSorcerer() {
     sorcererBones.hipR = hipR;
 
     const thighR = new THREE.Mesh(legGeo, uniformMat);
-    thighR.position.y = -0.25;
+    thighR.position.y = -0.26;
     hipR.add(thighR);
 
     const kneeR = new THREE.Group();
-    kneeR.position.y = -0.25;
+    kneeR.position.y = -0.26;
     thighR.add(kneeR);
     sorcererBones.kneeR = kneeR;
 
     const calfR = new THREE.Mesh(legGeo, uniformMat);
-    calfR.position.y = -0.25;
+    calfR.position.y = -0.26;
     kneeR.add(calfR);
 
-    const bootR = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.15, 0.28), bootMat);
-    bootR.position.set(0, -0.3, -0.05);
+    const bootR = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.16, 0.3), bootMat);
+    bootR.position.set(0, -0.32, -0.06);
     kneeR.add(bootR);
 
     // Infinity Guard Shimmering Barrier Sphere
@@ -461,7 +531,7 @@ function buildGojoAnimeSorcerer() {
         transmission: 0.85,
         blending: THREE.AdditiveBlending
     });
-    const barrier = new THREE.Mesh(new THREE.SphereGeometry(1.65, 24, 24), barrierMat);
+    const barrier = new THREE.Mesh(new THREE.SphereGeometry(1.68, 24, 24), barrierMat);
     barrier.position.y = 1.1;
     playerGroup.add(barrier);
     sorcererBones.barrier = barrier;
@@ -471,30 +541,26 @@ function buildGojoAnimeSorcerer() {
 
 function buildCursedDemon() {
     demonGroup = new THREE.Group();
-    demonGroup.position.set(combatState.enemy.position.x, 0, combatState.enemy.position.z);
+    demonGroup.position.set(combatState.enemy.position.x, combatState.enemy.position.y, combatState.enemy.position.z);
 
     const demonMat = new THREE.MeshStandardMaterial({ color: 0x220c15, roughness: 0.6, metalness: 0.3 });
     const hornMat = new THREE.MeshStandardMaterial({ color: 0x09090b, roughness: 0.2 });
 
-    // Torso
     const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.7, 0.45, 1.8, 10), demonMat);
     torso.position.y = 1.7;
     demonGroup.add(torso);
     demonBones.torso = torso;
 
-    // Head
     const head = new THREE.Mesh(new THREE.BoxGeometry(0.65, 0.7, 0.65), demonMat);
     head.position.y = 2.85;
     demonGroup.add(head);
 
-    // Horns
     const lHorn = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.9, 8), hornMat);
     lHorn.position.set(-0.4, 3.4, 0); lHorn.rotation.z = 0.4;
     const rHorn = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.9, 8), hornMat);
     rHorn.position.set(0.4, 3.4, 0); rHorn.rotation.z = -0.4;
     demonGroup.add(lHorn); demonGroup.add(rHorn);
 
-    // Eyes
     const eyeMat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
     const lEye = new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 8), eyeMat);
     lEye.position.set(-0.18, 2.9, 0.34);
@@ -502,16 +568,13 @@ function buildCursedDemon() {
     rEye.position.set(0.18, 2.9, 0.34);
     demonGroup.add(lEye); demonGroup.add(rEye);
 
-    // Arms
     const lArm = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.24, 1.4, 8), demonMat);
     lArm.position.set(-0.95, 1.4, 0.2);
     const rArm = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.24, 1.4, 8), demonMat);
     rArm.position.set(0.95, 1.4, 0.2);
     demonGroup.add(lArm); demonGroup.add(rArm);
-    demonBones.lArm = lArm;
-    demonBones.rArm = rArm;
+    demonBones.lArm = lArm; demonBones.rArm = rArm;
 
-    // Ground Slam Telegraph Ring
     const ringMat = new THREE.MeshBasicMaterial({ color: 0xef4444, transparent: true, opacity: 0.0, side: THREE.DoubleSide });
     demonSlamRing = new THREE.Mesh(new THREE.RingGeometry(0.2, COMBAT_CONSTANTS.ENEMY_ATTACKS.GROUND_SLAM.range, 32), ringMat);
     demonSlamRing.rotation.x = -Math.PI / 2;
@@ -532,7 +595,7 @@ export function triggerPlayerAbility(abilityKey) {
     if (!res.success) return;
 
     playerAnimState = abilityKey;
-    animTimer = 0.45;
+    animTimer = 0.48;
 
     switch (abilityKey) {
         case 'AURA_PUNCH':
@@ -544,40 +607,150 @@ export function triggerPlayerAbility(abilityKey) {
             }
             break;
 
+        case 'ROUNDHOUSE_KICK':
+            sfx.playKick();
+            if (res.hit) {
+                spawnDamageText(res.damage, demonGroup.position, 'dmg-punch');
+                demonGroup.position.z -= res.knockback;
+                shakeCamera(0.22, 0.25);
+            }
+            break;
+
         case 'BLUE_ORB':
             sfx.playBlueOrb();
-            spawnProjectile('BLUE', playerGroup.position, demonGroup.position, () => {
-                if (res.hit) {
-                    spawnDamageText(res.damage, demonGroup.position, 'dmg-blue');
-                    demonGroup.position.z += res.pullForce * 0.4;
-                    shakeCamera(0.2, 0.25);
-                }
-            });
+            // Blue energy sphere with attraction physics
+            spawnAttractingBlueOrb(playerGroup.position, demonGroup.position, res);
             break;
 
         case 'RED_BLAST':
             sfx.playRedBlast();
-            spawnProjectile('RED', playerGroup.position, demonGroup.position, () => {
-                if (res.hit) {
-                    spawnDamageText(res.damage, demonGroup.position, 'dmg-red');
-                    demonGroup.position.z -= res.knockback * 0.45;
-                    shakeCamera(0.25, 0.32);
-                }
-            });
+            // Red blast with repulsive shockwave
+            spawnRepulsiveRedBlast(playerGroup.position, demonGroup.position, res);
             break;
 
         case 'HOLLOW_PURPLE':
             sfx.playHollowPurple();
-            spawnProjectile('PURPLE', playerGroup.position, demonGroup.position, () => {
-                if (res.hit) {
-                    spawnDamageText(res.damage, demonGroup.position, 'dmg-purple');
-                    demonGroup.position.z -= 2.4;
-                    shakeCamera(0.55, 0.65);
-                }
-            });
+            // Dramatic Hollow Purple launch sequence
+            spawnHollowPurple(playerGroup.position, demonGroup.position, res);
             break;
     }
 
+    updateHUD();
+}
+
+/**
+ * Cursed Technique: Blue (Lapse)
+ * Spawns glowing blue sphere that continuously pulls enemy toward center!
+ */
+function spawnAttractingBlueOrb(startPos, targetPos, res) {
+    const geo = new THREE.SphereGeometry(0.45, 16, 16);
+    const mat = new THREE.MeshBasicMaterial({ color: 0x00f0ff, wireframe: true });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.copy(startPos).add(new THREE.Vector3(0, 1.4, 0));
+    scene.add(mesh);
+
+    const target = targetPos.clone().add(new THREE.Vector3(0, 1.4, 0));
+
+    activeProjectiles.push({
+        mesh,
+        target,
+        speed: 18,
+        update: (delta) => {
+            // Pull nearby demon continuously
+            const d = demonGroup.position.distanceTo(mesh.position);
+            if (d < 6.0) {
+                const pullDir = new THREE.Vector3().subVectors(mesh.position, demonGroup.position).normalize();
+                demonGroup.position.x += pullDir.x * 6.5 * delta;
+                demonGroup.position.z += pullDir.z * 6.5 * delta;
+            }
+        },
+        onHit: () => {
+            if (res.hit) {
+                spawnDamageText(res.damage, demonGroup.position, 'dmg-blue');
+                demonGroup.position.z += res.pullForce * 0.45;
+                shakeCamera(0.25, 0.3);
+            }
+        }
+    });
+}
+
+/**
+ * Cursed Technique: Red (Reversal)
+ * Repulsive blast that violently knocks enemy back!
+ */
+function spawnRepulsiveRedBlast(startPos, targetPos, res) {
+    const geo = new THREE.SphereGeometry(0.38, 16, 16);
+    const mat = new THREE.MeshBasicMaterial({ color: 0xef4444 });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.copy(startPos).add(new THREE.Vector3(0, 1.4, 0));
+    scene.add(mesh);
+
+    activeProjectiles.push({
+        mesh,
+        target: targetPos.clone().add(new THREE.Vector3(0, 1.4, 0)),
+        speed: 24,
+        onHit: () => {
+            if (res.hit) {
+                spawnDamageText(res.damage, demonGroup.position, 'dmg-red');
+                demonGroup.position.z -= res.knockback * 0.55;
+                shakeCamera(0.3, 0.35);
+            }
+        }
+    });
+}
+
+/**
+ * Secret Art: Hollow Purple
+ * Merges Blue + Red, launches massive crackling sphere with ground destruction!
+ */
+function spawnHollowPurple(startPos, targetPos, res) {
+    const geo = new THREE.SphereGeometry(0.9, 20, 20);
+    const mat = new THREE.MeshBasicMaterial({ color: 0xc084fc, wireframe: true });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.copy(startPos).add(new THREE.Vector3(0, 1.5, 0));
+    scene.add(mesh);
+
+    activeProjectiles.push({
+        mesh,
+        target: targetPos.clone().add(new THREE.Vector3(0, 1.5, 0)),
+        speed: 15,
+        onHit: () => {
+            if (res.hit) {
+                spawnDamageText(res.damage, demonGroup.position, 'dmg-purple');
+                demonGroup.position.z -= 3.0;
+                shakeCamera(0.65, 0.75);
+            }
+        }
+    });
+}
+
+export function handleAwakeningToggle() {
+    const isAwakened = toggleSixEyesAwakening(combatState);
+    if (isAwakened) {
+        sfx.playAwakening();
+        playerAnimState = 'AWAKEN';
+        animTimer = 0.8;
+        shakeCamera(0.35, 0.4);
+
+        // Slide blindfold down to neck
+        if (sorcererBones.blindfold) {
+            sorcererBones.blindfold.position.y = -0.15;
+            sorcererBones.blindfold.rotation.x = 0.3;
+        }
+        if (sorcererBones.eyesLight) {
+            sorcererBones.eyesLight.intensity = 2.5;
+        }
+        spawnDamageText('SIX EYES AWAKENED!', playerGroup.position, 'dmg-blue');
+    } else {
+        // Replace blindfold
+        if (sorcererBones.blindfold) {
+            sorcererBones.blindfold.position.set(0, 0.02, 0);
+            sorcererBones.blindfold.rotation.set(0, 0, 0);
+        }
+        if (sorcererBones.eyesLight) {
+            sorcererBones.eyesLight.intensity = 0.8;
+        }
+    }
     updateHUD();
 }
 
@@ -589,7 +762,6 @@ export function triggerDodge() {
         playerAnimState = 'DODGE';
         animTimer = 0.35;
 
-        // Determine input direction or dodge backward
         let inputDir = { x: 0, z: 1 };
         if (keys.KeyW) inputDir.z = -1;
         if (keys.KeyS) inputDir.z = 1;
@@ -611,23 +783,6 @@ export function toggleInfinityGuard() {
     setInfinityGuard(combatState, newState);
     if (newState) sfx.playGuard();
     updateHUD();
-}
-
-function spawnProjectile(type, startPos, targetPos, onHit) {
-    const geo = new THREE.SphereGeometry(type === 'PURPLE' ? 0.75 : 0.32, 16, 16);
-    const color = type === 'BLUE' ? 0x38bdf8 : (type === 'RED' ? 0xef4444 : 0xc084fc);
-    const mat = new THREE.MeshBasicMaterial({ color, wireframe: type === 'PURPLE' });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.position.copy(startPos);
-    mesh.position.y += 1.35;
-    scene.add(mesh);
-
-    activeProjectiles.push({
-        mesh,
-        target: targetPos.clone().add(new THREE.Vector3(0, 1.4, 0)),
-        speed: type === 'PURPLE' ? 14 : 22,
-        onHit
-    });
 }
 
 // ==========================================
@@ -752,19 +907,21 @@ function updateSkeletalAnimations(delta, elapsedTime, isMoving) {
     if (!b.shoulderR) return;
 
     if (animTimer <= 0) {
-        if (isMoving) {
+        if (!combatState.player.isGrounded) {
+            playerAnimState = 'JUMP';
+        } else if (isMoving) {
             playerAnimState = (keys.ShiftLeft || keys.ShiftRight) ? 'SPRINT' : 'WALK';
         } else {
             playerAnimState = combatState.player.isGuarding ? 'GUARD' : 'IDLE';
         }
     }
 
-    const freq = (playerAnimState === 'SPRINT') ? 12 : 7;
-    const limbSwing = Math.sin(elapsedTime * freq) * (playerAnimState === 'SPRINT' ? 0.75 : 0.45);
+    const freq = (playerAnimState === 'SPRINT') ? 13 : 7;
+    const limbSwing = Math.sin(elapsedTime * freq) * (playerAnimState === 'SPRINT' ? 0.78 : 0.48);
 
     switch (playerAnimState) {
         case 'IDLE':
-            b.chest.position.y = 0.45 + Math.sin(elapsedTime * 2.5) * 0.02;
+            b.chest.position.y = 0.46 + Math.sin(elapsedTime * 2.5) * 0.02;
             b.shoulderL.rotation.set(0.1, 0, -0.15);
             b.shoulderR.rotation.set(0.1, 0, 0.15);
             b.hipL.rotation.set(0, 0, 0);
@@ -777,31 +934,52 @@ function updateSkeletalAnimations(delta, elapsedTime, isMoving) {
             b.hipR.rotation.x = -limbSwing;
             b.shoulderL.rotation.x = -limbSwing * 0.8;
             b.shoulderR.rotation.x = limbSwing * 0.8;
-            b.chest.position.y = 0.45 + Math.abs(Math.sin(elapsedTime * freq)) * 0.05;
+            b.chest.position.y = 0.46 + Math.abs(Math.sin(elapsedTime * freq)) * 0.05;
+            break;
+
+        case 'JUMP':
+            b.hipL.rotation.x = 0.5;
+            b.hipR.rotation.x = 0.4;
+            b.kneeL.rotation.x = -0.8;
+            b.kneeR.rotation.x = -0.7;
+            b.shoulderL.rotation.set(-1.0, 0, -0.4);
+            b.shoulderR.rotation.set(-1.0, 0, 0.4);
             break;
 
         case 'AURA_PUNCH':
-            b.shoulderR.rotation.set(-1.4, -0.3, 0); // Thrust right arm straight forward
-            b.shoulderL.rotation.set(0.4, 0.4, -0.3); // Guard left
+            b.shoulderR.rotation.set(-1.45, -0.3, 0); // Straight punch
+            b.shoulderL.rotation.set(0.4, 0.4, -0.3); // Guard
+            break;
+
+        case 'ROUNDHOUSE_KICK':
+            b.hipR.rotation.set(-1.5, 0.8, -0.4); // High roundhouse kick
+            b.kneeR.rotation.set(0.2, 0, 0);
+            b.chest.rotation.z = -0.3;
             break;
 
         case 'BLUE_ORB':
-            b.shoulderL.rotation.set(-1.2, 0.5, 0.2); // Singularity focus
+            b.shoulderL.rotation.set(-1.25, 0.5, 0.2); // Singularity focus
             break;
 
         case 'RED_BLAST':
-            b.shoulderR.rotation.set(-1.3, -0.2, 0); // Blast forward
+            b.shoulderR.rotation.set(-1.35, -0.2, 0); // Repulsion blast
             break;
 
         case 'HOLLOW_PURPLE':
-            // Two hands converge together in front of chest
-            b.shoulderL.rotation.set(-1.1, 0.45, 0);
-            b.shoulderR.rotation.set(-1.1, -0.45, 0);
+            // Two hands converge in front of chest
+            b.shoulderL.rotation.set(-1.15, 0.45, 0);
+            b.shoulderR.rotation.set(-1.15, -0.45, 0);
             break;
 
         case 'GUARD':
             b.shoulderL.rotation.set(-0.6, 0.6, 0);
             b.shoulderR.rotation.set(0.2, -0.2, 0);
+            break;
+
+        case 'AWAKEN':
+            b.shoulderL.rotation.set(-1.6, 0.2, 0);
+            b.shoulderR.rotation.set(-1.6, -0.2, 0);
+            b.head.rotation.x = -0.35; // Head thrown back in dramatic awakening
             break;
     }
 }
@@ -872,7 +1050,6 @@ function initMediaPipeOrOptical() {
         }
         processFrame();
     } else {
-        // Fallback optical centroid tracking
         setupOpticalCentroidFallback();
     }
 }
@@ -904,6 +1081,7 @@ function onMediaPipeResults(results) {
             if (gesture === 'BLUE_ORB') triggerPlayerAbility('BLUE_ORB');
             if (gesture === 'INFINITY_GUARD') toggleInfinityGuard();
             if (gesture === 'HOLLOW_PURPLE') triggerPlayerAbility('HOLLOW_PURPLE');
+            if (gesture === 'RED_BLAST') triggerPlayerAbility('RED_BLAST');
             gestureDebounceTimer = COMBAT_CONSTANTS.GESTURES.DEBOUNCE_TIME;
         }
     } else {
@@ -989,12 +1167,26 @@ function updateHUD() {
         if (sorcererBones.barrier) sorcererBones.barrier.material.opacity = 0.0;
     }
 
+    const awakenBtn = document.getElementById('btn-awaken');
+    if (awakenBtn) {
+        if (p.isAwakened) {
+            awakenBtn.innerText = 'SIX EYES: AWAKENED';
+            awakenBtn.style.background = 'linear-gradient(90deg, #00f0ff, #3b82f6)';
+            awakenBtn.style.color = '#000';
+        } else {
+            awakenBtn.innerText = '[T] AWAKEN SIX EYES';
+            awakenBtn.style.background = 'rgba(12, 10, 24, 0.8)';
+            awakenBtn.style.color = '#38bdf8';
+        }
+    }
+
     const e = combatState.enemy;
     document.getElementById('boss-hp-fill').style.width = `${(e.hp / e.maxHp) * 100}%`;
     document.getElementById('boss-hp-label').innerText = `${Math.round(e.hp)} / ${e.maxHp}`;
     document.getElementById('boss-state-tag').innerText = e.state;
 
     updateCooldownCard('card-punch', p.cooldowns.AURA_PUNCH);
+    updateCooldownCard('card-kick', p.cooldowns.ROUNDHOUSE_KICK);
     updateCooldownCard('card-blue', p.cooldowns.BLUE_ORB);
     updateCooldownCard('card-red', p.cooldowns.RED_BLAST);
     updateCooldownCard('card-purple', p.cooldowns.HOLLOW_PURPLE);
@@ -1028,6 +1220,12 @@ export function resetGame() {
     demonGroup.scale.set(1, 1, 1);
     playerGroup.position.set(0, 0, 2.5);
 
+    if (sorcererBones.blindfold) {
+        sorcererBones.blindfold.position.set(0, 0.02, 0);
+        sorcererBones.blindfold.rotation.set(0, 0, 0);
+    }
+    if (sorcererBones.eyesLight) sorcererBones.eyesLight.intensity = 0.8;
+
     document.getElementById('victory-modal').style.display = 'none';
     document.getElementById('defeat-modal').style.display = 'none';
     updateHUD();
@@ -1041,11 +1239,21 @@ function setupInputListeners() {
         if (e.code in keys) keys[e.code] = true;
 
         if (e.code === 'KeyJ' || e.code === 'Digit1') triggerPlayerAbility('AURA_PUNCH');
+        if (e.code === 'KeyH') triggerPlayerAbility('ROUNDHOUSE_KICK');
         if (e.code === 'KeyK' || e.code === 'Digit2') triggerPlayerAbility('BLUE_ORB');
         if (e.code === 'KeyL' || e.code === 'Digit3') triggerPlayerAbility('RED_BLAST');
         if (e.code === 'KeyU' || e.code === 'Digit4') triggerPlayerAbility('HOLLOW_PURPLE');
         if (e.code === 'KeyI' || e.code === 'KeyC') toggleInfinityGuard();
-        if (e.code === 'Space') triggerDodge();
+        if (e.code === 'KeyT') handleAwakeningToggle();
+
+        // Jump physics
+        if (e.code === 'Space') {
+            if (keys.ShiftLeft || keys.ShiftRight || keys.KeyW || keys.KeyS || keys.KeyA || keys.KeyD) {
+                triggerDodge();
+            } else {
+                triggerJump(combatState.player);
+            }
+        }
 
         if (e.code === 'Escape') {
             combatState.status = (combatState.status === 'PLAYING') ? 'PAUSED' : 'PLAYING';
@@ -1057,11 +1265,13 @@ function setupInputListeners() {
     });
 
     document.getElementById('card-punch')?.addEventListener('click', () => triggerPlayerAbility('AURA_PUNCH'));
+    document.getElementById('card-kick')?.addEventListener('click', () => triggerPlayerAbility('ROUNDHOUSE_KICK'));
     document.getElementById('card-blue')?.addEventListener('click', () => triggerPlayerAbility('BLUE_ORB'));
     document.getElementById('card-red')?.addEventListener('click', () => triggerPlayerAbility('RED_BLAST'));
     document.getElementById('card-purple')?.addEventListener('click', () => triggerPlayerAbility('HOLLOW_PURPLE'));
     document.getElementById('card-guard')?.addEventListener('click', () => toggleInfinityGuard());
     document.getElementById('card-dodge')?.addEventListener('click', () => triggerDodge());
+    document.getElementById('btn-awaken')?.addEventListener('click', () => handleAwakeningToggle());
 
     document.getElementById('btn-restart-victory')?.addEventListener('click', resetGame);
     document.getElementById('btn-restart-defeat')?.addEventListener('click', resetGame);
@@ -1087,7 +1297,11 @@ function gameLoop() {
     updateCombatTimers(combatState, delta);
     updateEnemyAI(delta);
 
-    // Combine Keyboard Input & Hand Gesture Continuous Movement
+    // Jump Physics Step
+    processJump(combatState.player, delta);
+    playerGroup.position.y = combatState.player.position.y;
+
+    // Movement Input Calculation
     let inputX = 0, inputZ = 0;
     if (keys.KeyW) inputZ -= 1;
     if (keys.KeyS) inputZ += 1;
@@ -1102,7 +1316,7 @@ function gameLoop() {
     }
 
     const isSprinting = keys.ShiftLeft || keys.ShiftRight;
-    const move = calculateMovement({ x: inputX, z: inputZ }, isSprinting, delta);
+    const move = calculateMovement({ x: inputX, z: inputZ }, isSprinting, combatState.player.isAwakened, delta);
 
     playerGroup.position.x += move.dx;
     playerGroup.position.z += move.dz;
@@ -1117,7 +1331,6 @@ function gameLoop() {
         const targetRot = Math.atan2(inputX, inputZ);
         playerGroup.rotation.y = THREE.MathUtils.lerp(playerGroup.rotation.y, targetRot, delta * 10);
     } else {
-        // Face enemy when idle
         const dx = demonGroup.position.x - playerGroup.position.x;
         const dz = demonGroup.position.z - playerGroup.position.z;
         const faceEnemyRot = Math.atan2(dx, dz) + Math.PI;
@@ -1142,9 +1355,10 @@ function gameLoop() {
         camera.position.y += (Math.random() - 0.5) * shakeIntensity;
     }
 
-    // Active Projectiles Update
+    // Active Projectiles Update (with attraction & custom physics)
     for (let i = activeProjectiles.length - 1; i >= 0; i--) {
         const p = activeProjectiles[i];
+        if (p.update) p.update(delta);
         p.mesh.position.lerp(p.target, p.speed * delta);
         if (p.mesh.position.distanceTo(p.target) < 0.6) {
             p.onHit();

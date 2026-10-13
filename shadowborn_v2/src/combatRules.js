@@ -10,7 +10,9 @@ export const COMBAT_CONSTANTS = {
         ENERGY_REGEN_RATE: 12, // per second
         DEFENCE: 4,
         WALK_SPEED: 4.8,
-        SPRINT_SPEED: 7.8
+        SPRINT_SPEED: 7.8,
+        JUMP_FORCE: 7.5,
+        GRAVITY: 18.0
     },
     ENEMY: {
         MAX_HP: 250,
@@ -25,7 +27,8 @@ export const COMBAT_CONSTANTS = {
         DEADZONE_Y: 0.12,
         CENTER_X: 0.5,
         CENTER_Y: 0.5,
-        DEBOUNCE_TIME: 0.4
+        DEBOUNCE_TIME: 0.35,
+        SWIPE_VELOCITY_THRESHOLD: 1.5
     },
     ABILITIES: {
         AURA_PUNCH: {
@@ -33,35 +36,44 @@ export const COMBAT_CONSTANTS = {
             name: 'Aura Punch',
             baseDamage: 28,
             energyCost: 10,
-            cooldown: 0.5,
+            cooldown: 0.45,
             range: 3.0,
             knockback: 1.5
         },
+        ROUNDHOUSE_KICK: {
+            id: 'ROUNDHOUSE_KICK',
+            name: 'Cursed Roundhouse Kick',
+            baseDamage: 32,
+            energyCost: 12,
+            cooldown: 0.6,
+            range: 3.2,
+            knockback: 2.8
+        },
         BLUE_ORB: {
             id: 'BLUE_ORB',
-            name: 'Lapse: Blue Orb',
+            name: 'Lapse: Blue',
             baseDamage: 40,
             energyCost: 25,
-            cooldown: 2.2,
-            range: 12.0,
-            pullForce: 4.0
+            cooldown: 2.0,
+            range: 14.0,
+            pullForce: 5.5
         },
         RED_BLAST: {
             id: 'RED_BLAST',
-            name: 'Reversal: Red Blast',
+            name: 'Reversal: Red',
             baseDamage: 55,
             energyCost: 35,
-            cooldown: 3.5,
-            range: 10.0,
-            knockback: 6.0
+            cooldown: 3.2,
+            range: 12.0,
+            knockback: 7.0
         },
         HOLLOW_PURPLE: {
             id: 'HOLLOW_PURPLE',
             name: 'Secret Art: Hollow Purple',
             baseDamage: 110,
             energyCost: 70,
-            cooldown: 8.0,
-            range: 16.0,
+            cooldown: 7.5,
+            range: 18.0,
             piercing: true
         },
         INFINITY_GUARD: {
@@ -74,9 +86,17 @@ export const COMBAT_CONSTANTS = {
             id: 'DODGE',
             name: 'Phase Dodge',
             energyCost: 15,
-            cooldown: 1.0,
+            cooldown: 0.8,
             iframeDuration: 0.35,
             distance: 4.5
+        },
+        SIX_EYES_AWAKENING: {
+            id: 'SIX_EYES_AWAKENING',
+            name: 'Six Eyes Awakening',
+            energyCost: 0,
+            cooldown: 2.0,
+            damageMultiplier: 1.3,
+            speedMultiplier: 1.2
         }
     },
     ENEMY_ATTACKS: {
@@ -124,24 +144,30 @@ export function createInitialCombatState() {
             maxHp: COMBAT_CONSTANTS.PLAYER.MAX_HP,
             energy: COMBAT_CONSTANTS.PLAYER.MAX_ENERGY,
             maxEnergy: COMBAT_CONSTANTS.PLAYER.MAX_ENERGY,
-            position: { x: 0, z: 2.5 },
+            position: { x: 0, y: 0, z: 2.5 },
+            velocity: { y: 0 },
+            isGrounded: true,
             isGuarding: false,
             isDodging: false,
+            isAwakened: false,
+            blindfoldRemoved: false,
             dodgeTimer: 0,
             cooldowns: {
                 AURA_PUNCH: 0,
+                ROUNDHOUSE_KICK: 0,
                 BLUE_ORB: 0,
                 RED_BLAST: 0,
                 HOLLOW_PURPLE: 0,
-                DODGE: 0
+                DODGE: 0,
+                SIX_EYES_AWAKENING: 0
             }
         },
         enemy: {
             hp: COMBAT_CONSTANTS.ENEMY.MAX_HP,
             maxHp: COMBAT_CONSTANTS.ENEMY.MAX_HP,
             defence: COMBAT_CONSTANTS.ENEMY.DEFENCE,
-            position: { x: 0, z: -2.8 },
-            state: 'IDLE', // IDLE, APPROACH, PREPARE_SLAM, ATTACKING, STAGGERED, DEFEATED
+            position: { x: 0, y: 0, z: -2.8 },
+            state: 'IDLE', // IDLE, APPROACH, STRAFE, PREPARE_SLAM, ATTACKING, STAGGERED, DEFEATED
             staggerTimer: 0,
             currentAttack: null,
             cooldowns: {
@@ -156,20 +182,63 @@ export function createInitialCombatState() {
 }
 
 /**
- * Movement calculation with sprint and delta time.
+ * Toggle Six Eyes Awakening mode (removes blindfold, boosts stats).
  */
-export function calculateMovement(inputVector, isSprinting, delta) {
+export function toggleSixEyesAwakening(state) {
+    if (state.status !== 'PLAYING') return false;
+    if (state.player.cooldowns.SIX_EYES_AWAKENING > 0) return false;
+
+    state.player.isAwakened = !state.player.isAwakened;
+    state.player.blindfoldRemoved = state.player.isAwakened;
+    state.player.cooldowns.SIX_EYES_AWAKENING = COMBAT_CONSTANTS.ABILITIES.SIX_EYES_AWAKENING.cooldown;
+    return state.player.isAwakened;
+}
+
+/**
+ * Movement calculation with sprint, awakening boost, and delta time.
+ */
+export function calculateMovement(inputVector, isSprinting, isAwakened, delta) {
     if (!inputVector || (inputVector.x === 0 && inputVector.z === 0)) {
         return { dx: 0, dz: 0 };
     }
     const len = Math.hypot(inputVector.x, inputVector.z);
-    const speed = isSprinting ? COMBAT_CONSTANTS.PLAYER.SPRINT_SPEED : COMBAT_CONSTANTS.PLAYER.WALK_SPEED;
+    let speed = isSprinting ? COMBAT_CONSTANTS.PLAYER.SPRINT_SPEED : COMBAT_CONSTANTS.PLAYER.WALK_SPEED;
+    if (isAwakened) {
+        speed *= COMBAT_CONSTANTS.ABILITIES.SIX_EYES_AWAKENING.speedMultiplier;
+    }
     const nx = inputVector.x / len;
     const nz = inputVector.z / len;
     return {
         dx: nx * speed * delta,
         dz: nz * speed * delta
     };
+}
+
+/**
+ * Jump physics update.
+ */
+export function processJump(playerState, delta) {
+    if (!playerState.isGrounded) {
+        playerState.velocity.y -= COMBAT_CONSTANTS.PLAYER.GRAVITY * delta;
+        playerState.position.y += playerState.velocity.y * delta;
+        if (playerState.position.y <= 0) {
+            playerState.position.y = 0;
+            playerState.velocity.y = 0;
+            playerState.isGrounded = true;
+            return 'LANDING';
+        }
+        return 'AIRBORNE';
+    }
+    return 'GROUNDED';
+}
+
+export function triggerJump(playerState) {
+    if (playerState.isGrounded) {
+        playerState.isGrounded = false;
+        playerState.velocity.y = COMBAT_CONSTANTS.PLAYER.JUMP_FORCE;
+        return true;
+    }
+    return false;
 }
 
 /**
@@ -261,12 +330,19 @@ export function executePlayerAbility(state, abilityKey, distanceToTarget) {
         };
     }
 
-    // Calculate damage: baseDamage - defence (minimum 5)
-    const netDamage = Math.max(5, ability.baseDamage - state.enemy.defence);
+    // Damage multiplier if Six Eyes Awakened
+    let damageMult = 1.0;
+    if (state.player.isAwakened) {
+        damageMult = COMBAT_CONSTANTS.ABILITIES.SIX_EYES_AWAKENING.damageMultiplier;
+    }
+
+    // Calculate damage: baseDamage * multiplier - defence (minimum 5)
+    const rawDamage = ability.baseDamage * damageMult;
+    const netDamage = Math.max(5, Math.round(rawDamage - state.enemy.defence));
     state.enemy.hp = Math.max(0, state.enemy.hp - netDamage);
 
     // Apply stagger
-    state.enemy.staggerTimer = 0.4;
+    state.enemy.staggerTimer = 0.45;
     state.enemy.state = 'STAGGERED';
 
     if (state.enemy.hp <= 0) {
@@ -448,9 +524,15 @@ export function mapHandPositionToMovement(normX, normY, centerX = 0.5, centerY =
 /**
  * Classifies 21 hand landmarks into combat gestures.
  */
-export function classifyHandLandmarks(landmarks, twoHandsVisible = false) {
+export function classifyHandLandmarks(landmarks, twoHandsVisible = false, handVelocity = 0) {
+    // TWO-HAND GESTURE: Hollow Purple
     if (twoHandsVisible) {
         return 'HOLLOW_PURPLE';
+    }
+
+    // Quick hand swipe / high velocity -> Red Blast
+    if (handVelocity > COMBAT_CONSTANTS.GESTURES.SWIPE_VELOCITY_THRESHOLD) {
+        return 'RED_BLAST';
     }
 
     if (!landmarks || landmarks.length < 21) {
@@ -458,7 +540,6 @@ export function classifyHandLandmarks(landmarks, twoHandsVisible = false) {
     }
 
     const wrist = landmarks[0];
-    const thumbTip = landmarks[4];
     const indexTip = landmarks[8];
     const middleTip = landmarks[12];
     const ringTip = landmarks[16];
@@ -471,17 +552,17 @@ export function classifyHandLandmarks(landmarks, twoHandsVisible = false) {
     const isRingCurled = dist(ringTip, wrist) < 0.28;
     const isPinkyCurled = dist(pinkyTip, wrist) < 0.28;
 
-    // Closed fist -> Aura Punch
+    // CLOSED FIST: Aura Punch
     if (isIndexCurled && isMiddleCurled && isRingCurled && isPinkyCurled) {
         return 'AURA_PUNCH';
     }
 
-    // Index pointing -> Blue Orb
+    // INDEX FINGER POINTING: Aim Blue Orb
     if (!isIndexCurled && isMiddleCurled && isRingCurled && isPinkyCurled) {
         return 'BLUE_ORB';
     }
 
-    // Open Palm -> Infinity Guard
+    // OPEN PALM: Infinity Guard
     if (!isIndexCurled && !isMiddleCurled && !isRingCurled && !isPinkyCurled) {
         return 'INFINITY_GUARD';
     }
