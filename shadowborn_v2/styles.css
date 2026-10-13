@@ -308,6 +308,35 @@ body {
     margin-bottom: 6px;
 }
 
+.cam-btn-group {
+    display: flex;
+    gap: 4px;
+}
+
+.cam-btn {
+    border: none;
+    border-radius: 4px;
+    padding: 2px 7px;
+    font-size: 10px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: opacity 0.15s;
+}
+
+.cam-btn:hover {
+    opacity: 0.85;
+}
+
+.btn-cam-on {
+    background: #10b981;
+    color: #fff;
+}
+
+.btn-cam-off {
+    background: #374151;
+    color: #d1d5db;
+}
+
 .status-dot {
     width: 7px;
     height: 7px;
@@ -344,10 +373,19 @@ body {
 }
 
 .webcam-footer {
-    margin-top: 5px;
+    margin-top: 6px;
     font-size: 10px;
-    color: #94a3b8;
-    text-align: center;
+    display: flex;
+    justify-content: space-between;
+    font-weight: 700;
+}
+
+.gesture-text {
+    color: #c084fc;
+}
+
+.nav-text {
+    color: #38bdf8;
 }
 
 /* Floating 3D Combat Damage Text */

@@ -3,10 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SHADOWBORN V2 - Sorcerer vs Cursed Demon Combat</title>
+    <title>SHADOWBORN V2 - Anime Sorcerer vs Cursed Demon Combat</title>
     <link rel="stylesheet" href="styles.css">
     <!-- Three.js 3D Engine -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- Google MediaPipe Hands & Camera Utils -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 </head>
 <body>
     <div id="canvas-container"></div>
@@ -29,7 +32,7 @@
         <div class="player-card">
             <div class="game-title">SHADOWBORN V2: AWAKENED SORCERER</div>
             <div class="player-name-row">
-                <span class="player-name">Limitless Sorcerer</span>
+                <span class="player-name">Limitless Sorcerer (Gojo)</span>
                 <span class="status-badge">SPECIAL GRADE</span>
             </div>
 
@@ -60,13 +63,13 @@
             </div>
         </div>
 
-        <!-- Bottom Action Bar & Webcam Tracker -->
+        <!-- Bottom Action Deck & Webcam Controls -->
         <div class="hud-footer">
             <!-- Ability Deck -->
             <div class="abilities-bar">
                 <!-- Aura Punch -->
                 <div id="card-punch" class="ability-card card-punch">
-                    <span class="ability-key">[Q] / [1]</span>
+                    <span class="ability-key">[J] / [1]</span>
                     <div class="ability-name">Aura Punch</div>
                     <div class="ability-cost">10 Energy</div>
                     <div class="cooldown-overlay"></div>
@@ -74,7 +77,7 @@
 
                 <!-- Blue Orb -->
                 <div id="card-blue" class="ability-card card-blue">
-                    <span class="ability-key">[E] / [2]</span>
+                    <span class="ability-key">[K] / [2]</span>
                     <div class="ability-name">Lapse: Blue</div>
                     <div class="ability-cost">25 Energy</div>
                     <div class="cooldown-overlay"></div>
@@ -82,7 +85,7 @@
 
                 <!-- Red Blast -->
                 <div id="card-red" class="ability-card card-red">
-                    <span class="ability-key">[R] / [3]</span>
+                    <span class="ability-key">[L] / [3]</span>
                     <div class="ability-name">Reversal: Red</div>
                     <div class="ability-cost">35 Energy</div>
                     <div class="cooldown-overlay"></div>
@@ -90,7 +93,7 @@
 
                 <!-- Hollow Purple -->
                 <div id="card-purple" class="ability-card card-purple">
-                    <span class="ability-key">[F] / [4]</span>
+                    <span class="ability-key">[U] / [4]</span>
                     <div class="ability-name">Hollow Purple</div>
                     <div class="ability-cost">70 Energy</div>
                     <div class="cooldown-overlay"></div>
@@ -98,7 +101,7 @@
 
                 <!-- Infinity Guard -->
                 <div id="card-guard" class="ability-card card-guard">
-                    <span class="ability-key">[C] / [G]</span>
+                    <span class="ability-key">[I] / [C]</span>
                     <div class="ability-name">Infinity Guard</div>
                     <div class="ability-cost">Drain / s</div>
                     <div class="cooldown-overlay"></div>
@@ -113,21 +116,25 @@
                 </div>
             </div>
 
-            <!-- Webcam Tracking Widget -->
+            <!-- Webcam Tracking Widget with Enable/Disable buttons -->
             <div class="webcam-panel">
                 <div class="webcam-header">
                     <div>
                         <span id="status-dot" class="status-dot"></span>
-                        <span>OPTIONAL WEBCAM</span>
+                        <span id="webcam-status-label" style="color: #c4b5fd; font-weight: bold;">CAMERA READY</span>
                     </div>
-                    <span id="webcam-status-label" style="color: #a78bfa; font-size: 10px;">INITIALIZING</span>
+                    <div class="cam-btn-group">
+                        <button id="btn-enable-camera" class="cam-btn btn-cam-on">Enable</button>
+                        <button id="btn-disable-camera" class="cam-btn btn-cam-off">Disable</button>
+                    </div>
                 </div>
                 <div class="webcam-box">
                     <video id="webcam-video" autoplay playsinline muted></video>
                     <canvas id="tracking-canvas"></canvas>
                 </div>
                 <div class="webcam-footer">
-                    Keyboard & Click controls always active
+                    <div id="webcam-gesture-label" class="gesture-text">GESTURE: NONE</div>
+                    <div id="webcam-move-label" class="nav-text">NAV: NEUTRAL</div>
                 </div>
             </div>
         </div>

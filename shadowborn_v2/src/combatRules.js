@@ -1,6 +1,6 @@
 /**
- * SHADOWBORN V2 - Combat Rules Engine
- * Core combat calculations, damage formulas, ability costs, and state validation.
+ * SHADOWBORN V2 - Combat Rules & Movement Engine
+ * Core combat calculations, movement physics, arena constraints, and gesture classification.
  */
 
 export const COMBAT_CONSTANTS = {
@@ -8,12 +8,24 @@ export const COMBAT_CONSTANTS = {
         MAX_HP: 100,
         MAX_ENERGY: 100,
         ENERGY_REGEN_RATE: 12, // per second
-        DEFENCE: 4
+        DEFENCE: 4,
+        WALK_SPEED: 4.8,
+        SPRINT_SPEED: 7.8
     },
     ENEMY: {
         MAX_HP: 250,
         DEFENCE: 6,
         MOVE_SPEED: 3.2
+    },
+    ARENA: {
+        RADIUS: 13.5
+    },
+    GESTURES: {
+        DEADZONE_X: 0.08,
+        DEADZONE_Y: 0.12,
+        CENTER_X: 0.5,
+        CENTER_Y: 0.5,
+        DEBOUNCE_TIME: 0.4
     },
     ABILITIES: {
         AURA_PUNCH: {
@@ -112,6 +124,7 @@ export function createInitialCombatState() {
             maxHp: COMBAT_CONSTANTS.PLAYER.MAX_HP,
             energy: COMBAT_CONSTANTS.PLAYER.MAX_ENERGY,
             maxEnergy: COMBAT_CONSTANTS.PLAYER.MAX_ENERGY,
+            position: { x: 0, z: 2.5 },
             isGuarding: false,
             isDodging: false,
             dodgeTimer: 0,
@@ -127,6 +140,7 @@ export function createInitialCombatState() {
             hp: COMBAT_CONSTANTS.ENEMY.MAX_HP,
             maxHp: COMBAT_CONSTANTS.ENEMY.MAX_HP,
             defence: COMBAT_CONSTANTS.ENEMY.DEFENCE,
+            position: { x: 0, z: -2.8 },
             state: 'IDLE', // IDLE, APPROACH, PREPARE_SLAM, ATTACKING, STAGGERED, DEFEATED
             staggerTimer: 0,
             currentAttack: null,
@@ -139,6 +153,62 @@ export function createInitialCombatState() {
         },
         status: 'PLAYING' // PLAYING, VICTORY, DEFEAT, PAUSED
     };
+}
+
+/**
+ * Movement calculation with sprint and delta time.
+ */
+export function calculateMovement(inputVector, isSprinting, delta) {
+    if (!inputVector || (inputVector.x === 0 && inputVector.z === 0)) {
+        return { dx: 0, dz: 0 };
+    }
+    const len = Math.hypot(inputVector.x, inputVector.z);
+    const speed = isSprinting ? COMBAT_CONSTANTS.PLAYER.SPRINT_SPEED : COMBAT_CONSTANTS.PLAYER.WALK_SPEED;
+    const nx = inputVector.x / len;
+    const nz = inputVector.z / len;
+    return {
+        dx: nx * speed * delta,
+        dz: nz * speed * delta
+    };
+}
+
+/**
+ * Clamps coordinates within arena circle boundary.
+ */
+export function clampToArena(pos, radius = COMBAT_CONSTANTS.ARENA.RADIUS) {
+    const dist = Math.hypot(pos.x, pos.z);
+    if (dist > radius) {
+        const factor = radius / dist;
+        return {
+            x: pos.x * factor,
+            z: pos.z * factor
+        };
+    }
+    return { x: pos.x, z: pos.z };
+}
+
+/**
+ * Calculates dodge destination displacement with boundary safety.
+ */
+export function calculateDodgeDisplacement(currentPos, inputDirection, distance = 4.5, radius = COMBAT_CONSTANTS.ARENA.RADIUS) {
+    let dirX = 0;
+    let dirZ = 1; // Default backward (+Z)
+
+    if (inputDirection && (inputDirection.x !== 0 || inputDirection.z !== 0)) {
+        dirX = inputDirection.x || 0;
+        dirZ = inputDirection.z || 0;
+    }
+
+    const len = Math.hypot(dirX, dirZ);
+    if (len > 0) {
+        dirX /= len;
+        dirZ /= len;
+    }
+    const target = {
+        x: currentPos.x + dirX * distance,
+        z: currentPos.z + dirZ * distance
+    };
+    return clampToArena(target, radius);
 }
 
 /**
@@ -339,4 +409,82 @@ export function updateCombatTimers(state, delta) {
         const regen = COMBAT_CONSTANTS.PLAYER.ENERGY_REGEN_RATE * delta;
         state.player.energy = Math.min(state.player.maxEnergy, state.player.energy + regen);
     }
+}
+
+/**
+ * Maps normalized hand position (0 to 1) to continuous movement input vector with deadzone.
+ */
+export function mapHandPositionToMovement(normX, normY, centerX = 0.5, centerY = 0.5, deadzoneX = 0.08, deadzoneY = 0.12) {
+    if (normX === null || normY === null) {
+        return { x: 0, z: 0, status: 'NO_HAND' };
+    }
+
+    const diffX = normX - centerX;
+    const diffY = normY - centerY;
+
+    let moveX = 0;
+    let moveZ = 0;
+
+    // Camera is mirrored, so moving hand to user's left means normX < centerX
+    if (Math.abs(diffX) > deadzoneX) {
+        moveX = diffX > 0 ? 1 : -1;
+    }
+
+    // Hand upward in camera view (normY < centerY) maps to moving forward (-Z)
+    if (Math.abs(diffY) > deadzoneY) {
+        moveZ = diffY < 0 ? -1 : 1;
+    }
+
+    let status = 'NEUTRAL';
+    if (moveX !== 0 || moveZ !== 0) {
+        const xStr = moveX < 0 ? 'LEFT' : (moveX > 0 ? 'RIGHT' : '');
+        const zStr = moveZ < 0 ? 'FORWARD' : (moveZ > 0 ? 'BACKWARD' : '');
+        status = `MOVING ${xStr} ${zStr}`.trim();
+    }
+
+    return { x: moveX, z: moveZ, status };
+}
+
+/**
+ * Classifies 21 hand landmarks into combat gestures.
+ */
+export function classifyHandLandmarks(landmarks, twoHandsVisible = false) {
+    if (twoHandsVisible) {
+        return 'HOLLOW_PURPLE';
+    }
+
+    if (!landmarks || landmarks.length < 21) {
+        return 'NONE';
+    }
+
+    const wrist = landmarks[0];
+    const thumbTip = landmarks[4];
+    const indexTip = landmarks[8];
+    const middleTip = landmarks[12];
+    const ringTip = landmarks[16];
+    const pinkyTip = landmarks[20];
+
+    const dist = (p1, p2) => Math.hypot(p1.x - p2.x, p1.y - p2.y, (p1.z || 0) - (p2.z || 0));
+
+    const isIndexCurled = dist(indexTip, wrist) < 0.28;
+    const isMiddleCurled = dist(middleTip, wrist) < 0.28;
+    const isRingCurled = dist(ringTip, wrist) < 0.28;
+    const isPinkyCurled = dist(pinkyTip, wrist) < 0.28;
+
+    // Closed fist -> Aura Punch
+    if (isIndexCurled && isMiddleCurled && isRingCurled && isPinkyCurled) {
+        return 'AURA_PUNCH';
+    }
+
+    // Index pointing -> Blue Orb
+    if (!isIndexCurled && isMiddleCurled && isRingCurled && isPinkyCurled) {
+        return 'BLUE_ORB';
+    }
+
+    // Open Palm -> Infinity Guard
+    if (!isIndexCurled && !isMiddleCurled && !isRingCurled && !isPinkyCurled) {
+        return 'INFINITY_GUARD';
+    }
+
+    return 'NONE';
 }

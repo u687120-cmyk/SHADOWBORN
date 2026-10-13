@@ -8,6 +8,11 @@ import {
     executeDodge,
     executeEnemyAttack,
     updateCombatTimers,
+    calculateMovement,
+    clampToArena,
+    calculateDodgeDisplacement,
+    mapHandPositionToMovement,
+    classifyHandLandmarks,
     COMBAT_CONSTANTS
 } from '../src/combatRules.js';
 
@@ -166,5 +171,89 @@ describe('SHADOWBORN V2 - Combat Rules Engine Tests', () => {
 
         assert.equal(state.player.cooldowns.AURA_PUNCH, 0);
         assert.ok(state.player.energy > 50, 'Energy should have regenerated');
+    });
+
+    test('12. Movement calculation produces correct velocity and respects sprint', () => {
+        const delta = 0.1;
+        const walk = calculateMovement({ x: 0, z: -1 }, false, delta);
+        assert.ok(walk.dz < 0, 'Should move forward (-Z)');
+        assert.equal(walk.dx, 0);
+
+        const sprint = calculateMovement({ x: 0, z: -1 }, true, delta);
+        assert.ok(Math.abs(sprint.dz) > Math.abs(walk.dz), 'Sprint should be faster than walk');
+
+        const idle = calculateMovement({ x: 0, z: 0 }, false, delta);
+        assert.equal(idle.dx, 0);
+        assert.equal(idle.dz, 0);
+    });
+
+    test('13. Arena boundary collision clamps position within circle radius', () => {
+        const inside = { x: 5, z: 5 };
+        const clampedInside = clampToArena(inside, 13.5);
+        assert.equal(clampedInside.x, 5);
+        assert.equal(clampedInside.z, 5);
+
+        const outside = { x: 20, z: 0 };
+        const clampedOutside = clampToArena(outside, 13.5);
+        assert.equal(clampedOutside.x, 13.5);
+        assert.equal(clampedOutside.z, 0);
+    });
+
+    test('14. Dodge displacement calculates target position safely within arena', () => {
+        const currentPos = { x: 0, z: 0 };
+        const inputDir = { x: 1, z: 0 }; // dodge right
+        const target = calculateDodgeDisplacement(currentPos, inputDir, 4.5, 13.5);
+        assert.equal(target.x, 4.5);
+        assert.equal(target.z, 0);
+    });
+
+    test('15. Hand gesture mapping detects continuous directions and deadzones', () => {
+        // Neutral center within deadzone -> 0 movement
+        const neutral = mapHandPositionToMovement(0.51, 0.51, 0.5, 0.5, 0.08, 0.12);
+        assert.equal(neutral.x, 0);
+        assert.equal(neutral.z, 0);
+        assert.equal(neutral.status, 'NEUTRAL');
+
+        // Moved to right -> moveX = 1
+        const right = mapHandPositionToMovement(0.70, 0.50, 0.5, 0.5, 0.08, 0.12);
+        assert.equal(right.x, 1);
+        assert.equal(right.z, 0);
+
+        // Moved forward (up in video) -> moveZ = -1
+        const forward = mapHandPositionToMovement(0.50, 0.30, 0.5, 0.5, 0.08, 0.12);
+        assert.equal(forward.x, 0);
+        assert.equal(forward.z, -1);
+
+        // Tracking lost (null) -> 0 movement safely
+        const lost = mapHandPositionToMovement(null, null);
+        assert.equal(lost.x, 0);
+        assert.equal(lost.z, 0);
+        assert.equal(lost.status, 'NO_HAND');
+    });
+
+    test('16. Hand landmark classification correctly identifies gestures', () => {
+        // Two hands -> Hollow Purple
+        assert.equal(classifyHandLandmarks([], true), 'HOLLOW_PURPLE');
+
+        // Simulated closed fist landmarks (all fingertips near wrist at 0,0,0)
+        const fistLandmarks = Array(21).fill(0).map((_, i) => {
+            if ([8, 12, 16, 20].includes(i)) return { x: 0.1, y: 0.1, z: 0 }; // curled near wrist
+            return { x: 0, y: 0, z: 0 };
+        });
+        assert.equal(classifyHandLandmarks(fistLandmarks), 'AURA_PUNCH');
+
+        // Simulated pointing (index far from wrist, other fingers curled)
+        const pointLandmarks = Array(21).fill(0).map((_, i) => {
+            if (i === 8) return { x: 0.8, y: 0.8, z: 0 }; // extended index
+            return { x: 0.1, y: 0.1, z: 0 };
+        });
+        assert.equal(classifyHandLandmarks(pointLandmarks), 'BLUE_ORB');
+
+        // Simulated open palm (all fingertips extended far from wrist)
+        const palmLandmarks = Array(21).fill(0).map((_, i) => {
+            if ([8, 12, 16, 20].includes(i)) return { x: 0.8, y: 0.8, z: 0 }; // all extended
+            return { x: 0.1, y: 0.1, z: 0 };
+        });
+        assert.equal(classifyHandLandmarks(palmLandmarks), 'INFINITY_GUARD');
     });
 });
