@@ -1,0 +1,19 @@
+{
+  "name": "shadowborn-v2",
+  "version": "2.0.0",
+  "description": "SHADOWBORN V2 - Real-Time Dark Fantasy Sorcerer vs Cursed Demon Combat",
+  "main": "src/main.js",
+  "type": "module",
+  "scripts": {
+    "test": "node --test tests/combat.test.js"
+  },
+  "keywords": [
+    "threejs",
+    "webgl",
+    "combat",
+    "mediapipe",
+    "dark-fantasy"
+  ],
+  "author": "Ujjwal",
+  "license": "MIT"
+}
