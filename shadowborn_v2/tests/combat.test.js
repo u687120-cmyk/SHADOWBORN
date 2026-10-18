@@ -16,6 +16,7 @@ import {
     toggleSixEyesAwakening,
     triggerJump,
     processJump,
+    executeTeleportBehind,
     COMBAT_CONSTANTS
 } from '../src/combatRules.js';
 
@@ -299,5 +300,52 @@ describe('SHADOWBORN V2 - Combat Rules Engine Tests', () => {
         }
         assert.equal(state.player.isGrounded, true);
         assert.equal(state.player.position.y, 0);
+    });
+
+    test('19. Black Flash deals massive critical damage and applies heavy knockback', () => {
+        const state = createInitialCombatState();
+        const initialHp = state.enemy.hp;
+        const res = executePlayerAbility(state, 'BLACK_FLASH', 2.5);
+        assert.equal(res.success, true);
+        assert.equal(res.hit, true);
+        assert.ok(res.damage >= 65, 'Black flash must deal heavy damage');
+        assert.ok(res.knockback >= 6.0, 'Black flash must deliver huge knockback');
+        assert.equal(state.enemy.hp, initialHp - res.damage);
+        assert.equal(state.player.comboCount, 1);
+    });
+
+    test('20. Domain Expansion triggers domain mode, consumes energy, and freezes enemy', () => {
+        const state = createInitialCombatState();
+        const res = executePlayerAbility(state, 'DOMAIN_EXPANSION', 10.0);
+        assert.equal(res.success, true);
+        assert.equal(res.hit, true);
+        assert.ok(res.damage >= 100);
+        assert.equal(state.player.inDomain, true);
+        assert.ok(state.player.domainTimer > 0);
+        assert.equal(state.enemy.state, 'STAGGERED');
+        assert.ok(state.enemy.staggerTimer > 0);
+    });
+
+    test('21. Instant Spatial Warp (Teleport) teleports player behind enemy and respects boundaries', () => {
+        const state = createInitialCombatState();
+        const res = executeTeleportBehind(state);
+        assert.equal(res.success, true);
+        assert.ok(res.target);
+        assert.ok(Math.hypot(res.target.x, res.target.z) <= COMBAT_CONSTANTS.ARENA.RADIUS);
+        assert.equal(state.player.position.x, res.target.x);
+        assert.equal(state.player.position.z, res.target.z);
+    });
+
+    test('22. Combo accumulation counts hits, damage, and decays on timeout', () => {
+        const state = createInitialCombatState();
+        executePlayerAbility(state, 'AURA_PUNCH', 2.0);
+        assert.equal(state.player.comboCount, 1);
+        assert.ok(state.player.comboDamage > 0);
+        assert.ok(state.player.comboTimer > 0);
+
+        // Fast forward delta beyond combo window
+        updateCombatTimers(state, 3.0);
+        assert.equal(state.player.comboCount, 0);
+        assert.equal(state.player.comboDamage, 0);
     });
 });

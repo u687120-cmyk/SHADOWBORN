@@ -97,6 +97,31 @@ export const COMBAT_CONSTANTS = {
             cooldown: 2.0,
             damageMultiplier: 1.3,
             speedMultiplier: 1.2
+        },
+        BLACK_FLASH: {
+            id: 'BLACK_FLASH',
+            name: 'Critical: Black Flash',
+            baseDamage: 75,
+            energyCost: 20,
+            cooldown: 3.5,
+            range: 3.2,
+            knockback: 6.5
+        },
+        DOMAIN_EXPANSION: {
+            id: 'DOMAIN_EXPANSION',
+            name: 'Domain Expansion: Unlimited Void',
+            baseDamage: 130,
+            energyCost: 80,
+            cooldown: 16.0,
+            range: 20.0,
+            duration: 5.5
+        },
+        TELEPORT: {
+            id: 'TELEPORT',
+            name: 'Instant Spatial Warp',
+            energyCost: 15,
+            cooldown: 1.8,
+            distance: 4.5
         }
     },
     ENEMY_ATTACKS: {
@@ -152,6 +177,11 @@ export function createInitialCombatState() {
             isAwakened: false,
             blindfoldRemoved: false,
             dodgeTimer: 0,
+            comboCount: 0,
+            comboTimer: 0,
+            comboDamage: 0,
+            inDomain: false,
+            domainTimer: 0,
             cooldowns: {
                 AURA_PUNCH: 0,
                 ROUNDHOUSE_KICK: 0,
@@ -159,7 +189,10 @@ export function createInitialCombatState() {
                 RED_BLAST: 0,
                 HOLLOW_PURPLE: 0,
                 DODGE: 0,
-                SIX_EYES_AWAKENING: 0
+                SIX_EYES_AWAKENING: 0,
+                BLACK_FLASH: 0,
+                DOMAIN_EXPANSION: 0,
+                TELEPORT: 0
             }
         },
         enemy: {
@@ -170,6 +203,8 @@ export function createInitialCombatState() {
             state: 'IDLE', // IDLE, APPROACH, STRAFE, PREPARE_SLAM, ATTACKING, STAGGERED, DEFEATED
             staggerTimer: 0,
             currentAttack: null,
+            isEnraged: false,
+            enrageTriggered: false,
             cooldowns: {
                 CLAW: 0,
                 GROUND_SLAM: 0,
@@ -341,9 +376,22 @@ export function executePlayerAbility(state, abilityKey, distanceToTarget) {
     const netDamage = Math.max(5, Math.round(rawDamage - state.enemy.defence));
     state.enemy.hp = Math.max(0, state.enemy.hp - netDamage);
 
-    // Apply stagger
-    state.enemy.staggerTimer = 0.45;
-    state.enemy.state = 'STAGGERED';
+    // Combo accumulation
+    state.player.comboCount = (state.player.comboCount || 0) + 1;
+    state.player.comboTimer = 2.5;
+    state.player.comboDamage = (state.player.comboDamage || 0) + netDamage;
+
+    // Domain Expansion activation
+    if (abilityKey === 'DOMAIN_EXPANSION') {
+        state.player.inDomain = true;
+        state.player.domainTimer = ability.duration || 5.5;
+        state.enemy.staggerTimer = ability.duration || 5.5;
+        state.enemy.state = 'STAGGERED';
+    } else {
+        // Apply stagger
+        state.enemy.staggerTimer = Math.max(state.enemy.staggerTimer || 0, 0.45);
+        state.enemy.state = 'STAGGERED';
+    }
 
     if (state.enemy.hp <= 0) {
         state.enemy.state = 'DEFEATED';
@@ -355,8 +403,38 @@ export function executePlayerAbility(state, abilityKey, distanceToTarget) {
         hit: true,
         damage: netDamage,
         knockback: ability.knockback || 0,
-        pullForce: ability.pullForce || 0
+        pullForce: ability.pullForce || 0,
+        comboCount: state.player.comboCount
     };
+}
+
+/**
+ * Execute Instant Spatial Warp / Teleport behind enemy.
+ */
+export function executeTeleportBehind(state) {
+    if (state.status !== 'PLAYING') return { success: false, reason: 'Game not active' };
+    const cost = COMBAT_CONSTANTS.ABILITIES.TELEPORT.energyCost;
+    if (state.player.energy < cost) return { success: false, reason: 'Insufficient energy' };
+    if (state.player.cooldowns.TELEPORT > 0) return { success: false, reason: 'On cooldown' };
+
+    state.player.energy = Math.max(0, state.player.energy - cost);
+    state.player.cooldowns.TELEPORT = COMBAT_CONSTANTS.ABILITIES.TELEPORT.cooldown;
+
+    // Calculate position 1.8m behind enemy
+    const dx = state.enemy.position.x - state.player.position.x;
+    const dz = state.enemy.position.z - state.player.position.z;
+    const len = Math.hypot(dx, dz) || 1;
+    const dirX = dx / len;
+    const dirZ = dz / len;
+
+    const targetX = state.enemy.position.x + dirX * 1.8;
+    const targetZ = state.enemy.position.z + dirZ * 1.8;
+    const clamped = clampToArena({ x: targetX, z: targetZ });
+
+    state.player.position.x = clamped.x;
+    state.player.position.z = clamped.z;
+
+    return { success: true, target: clamped };
 }
 
 /**
@@ -484,6 +562,33 @@ export function updateCombatTimers(state, delta) {
         // Natural energy regeneration
         const regen = COMBAT_CONSTANTS.PLAYER.ENERGY_REGEN_RATE * delta;
         state.player.energy = Math.min(state.player.maxEnergy, state.player.energy + regen);
+    }
+
+    // Combo streak decay
+    if (state.player.comboTimer > 0) {
+        state.player.comboTimer -= delta;
+        if (state.player.comboTimer <= 0) {
+            state.player.comboCount = 0;
+            state.player.comboDamage = 0;
+        }
+    }
+
+    // Domain Expansion duration & paralysis
+    if (state.player.inDomain) {
+        state.player.domainTimer -= delta;
+        if (state.player.domainTimer <= 0) {
+            state.player.inDomain = false;
+        } else {
+            // Keep enemy completely frozen under infinite information sensory overload
+            state.enemy.state = 'STAGGERED';
+            state.enemy.staggerTimer = Math.max(state.enemy.staggerTimer || 0, state.player.domainTimer);
+        }
+    }
+
+    // Demon Boss Phase 2 Enrage (<50% HP)
+    if (state.enemy.hp <= COMBAT_CONSTANTS.ENEMY.MAX_HP * 0.5 && !state.enemy.enrageTriggered) {
+        state.enemy.isEnraged = true;
+        state.enemy.enrageTriggered = true;
     }
 }
 
