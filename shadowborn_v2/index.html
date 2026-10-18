@@ -2,188 +2,197 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SHADOWBORN V2 - Anime Sorcerer vs Cursed Demon Combat</title>
-    <link rel="stylesheet" href="styles.css">
-    <!-- Three.js 3D Engine -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
-    <!-- Google MediaPipe Hands & Camera Utils -->
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
-</head>
-<body>
-    <div id="canvas-container"></div>
 
-    <!-- UI Overlay Layer -->
-    <div id="ui-layer">
-        <!-- Top Demon Boss Bar -->
-        <div class="boss-hud">
-            <div class="boss-title-row">
-                <span class="boss-name">&#9760; CURSED DEMON VANGUARD</span>
-                <span id="boss-state-tag" class="boss-state-tag">IDLE</span>
-            </div>
-            <div class="boss-bar-bg">
-                <div id="boss-hp-fill" class="boss-bar-fill" style="width: 100%;"></div>
-            </div>
-            <div id="boss-hp-label" style="font-size: 11px; color: #fca5a5; margin-top: 3px; font-weight: 700;">250 / 250</div>
-        </div>
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1.0"
+    >
 
-        <!-- Top Left: Player Status -->
-        <div class="player-card">
-            <div class="game-title">SHADOWBORN V2: AWAKENED SORCERER</div>
-            <div class="player-name-row">
-                <span class="player-name">Limitless Sorcerer (Gojo)</span>
-                <span class="status-badge">SPECIAL GRADE</span>
-                <button id="btn-awaken" class="btn-awaken">[T] AWAKEN SIX EYES</button>
-            </div>
+    <title>Shadowborn: Awakening</title>
 
-            <!-- HP Bar -->
-            <div class="bar-box">
-                <div class="bar-labels">
-                    <span>HEALTH</span>
-                    <span id="player-hp-label">100 / 100</span>
-                </div>
-                <div class="bar-bg">
-                    <div id="player-hp-fill" class="hp-fill" style="width: 100%;"></div>
-                </div>
-            </div>
+    <link rel="stylesheet" href="./style.css">
 
-            <!-- Energy Bar -->
-            <div class="bar-box" style="margin-bottom: 0;">
-                <div class="bar-labels">
-                    <span>CURSED ENERGY</span>
-                    <span id="player-energy-label">100 / 100</span>
-                </div>
-                <div class="bar-bg">
-                    <div id="player-energy-fill" class="energy-fill" style="width: 100%;"></div>
-                </div>
-            </div>
-
-            <div id="guard-active-banner" class="guard-banner">
-                &#9670; INFINITY GUARD ACTIVE (100% BLOCKED)
-            </div>
-
-            <!-- Controls Quick Reference -->
-            <div class="controls-legend">
-                <span>[WASD] Move</span> &bull;
-                <span>[Shift] Sprint</span> &bull;
-                <span>[Space] Jump / Dodge</span>
-            </div>
-        </div>
-
-        <!-- Bottom Action Deck & Webcam Controls -->
-        <div class="hud-footer">
-            <!-- Ability Deck -->
-            <div class="abilities-bar">
-                <!-- Aura Punch -->
-                <div id="card-punch" class="ability-card card-punch">
-                    <span class="ability-key">[J] / [1]</span>
-                    <div class="ability-name">Aura Punch</div>
-                    <div class="ability-cost">10 Energy</div>
-                    <div class="cooldown-overlay"></div>
-                </div>
-
-                <!-- Roundhouse Kick -->
-                <div id="card-kick" class="ability-card card-kick">
-                    <span class="ability-key">[H]</span>
-                    <div class="ability-name">Roundhouse Kick</div>
-                    <div class="ability-cost">15 Energy</div>
-                    <div class="cooldown-overlay"></div>
-                </div>
-
-                <!-- Blue Orb -->
-                <div id="card-blue" class="ability-card card-blue">
-                    <span class="ability-key">[K] / [2]</span>
-                    <div class="ability-name">Lapse: Blue</div>
-                    <div class="ability-cost">25 Energy</div>
-                    <div class="cooldown-overlay"></div>
-                </div>
-
-                <!-- Red Blast -->
-                <div id="card-red" class="ability-card card-red">
-                    <span class="ability-key">[L] / [3]</span>
-                    <div class="ability-name">Reversal: Red</div>
-                    <div class="ability-cost">35 Energy</div>
-                    <div class="cooldown-overlay"></div>
-                </div>
-
-                <!-- Hollow Purple -->
-                <div id="card-purple" class="ability-card card-purple">
-                    <span class="ability-key">[U] / [4]</span>
-                    <div class="ability-name">Hollow Purple</div>
-                    <div class="ability-cost">70 Energy</div>
-                    <div class="cooldown-overlay"></div>
-                </div>
-
-                <!-- Infinity Guard -->
-                <div id="card-guard" class="ability-card card-guard">
-                    <span class="ability-key">[I] / [C]</span>
-                    <div class="ability-name">Infinity Guard</div>
-                    <div class="ability-cost">Drain / s</div>
-                    <div class="cooldown-overlay"></div>
-                </div>
-
-                <!-- Dodge -->
-                <div id="card-dodge" class="ability-card card-dodge">
-                    <span class="ability-key">[SPACE]</span>
-                    <div class="ability-name">Phase Dodge</div>
-                    <div class="ability-cost">15 Energy</div>
-                    <div class="cooldown-overlay"></div>
-                </div>
-            </div>
-
-            <!-- Webcam Tracking Widget with Enable/Disable buttons -->
-            <div class="webcam-panel">
-                <div class="webcam-header">
-                    <div>
-                        <span id="status-dot" class="status-dot"></span>
-                        <span id="webcam-status-label" style="color: #c4b5fd; font-weight: bold;">CAMERA READY</span>
-                    </div>
-                    <div class="cam-btn-group">
-                        <button id="btn-enable-camera" class="cam-btn btn-cam-on">Enable</button>
-                        <button id="btn-disable-camera" class="cam-btn btn-cam-off">Disable</button>
-                    </div>
-                </div>
-                <div class="webcam-box">
-                    <video id="webcam-video" autoplay playsinline muted></video>
-                    <canvas id="tracking-canvas"></canvas>
-                </div>
-                <div class="webcam-footer">
-                    <div id="webcam-gesture-label" class="gesture-text">GESTURE: NONE</div>
-                    <div id="webcam-move-label" class="nav-text">NAV: NEUTRAL</div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Victory Modal -->
-    <div id="victory-modal" class="modal-backdrop">
-        <div class="modal-content">
-            <div class="modal-title victory-title">&#9733; SPECIAL GRADE EXORCISM &#9733;</div>
-            <div class="modal-desc">
-                The Cursed Demon Vanguard has been obliterated by your limitless technique.<br><br>
-                <strong>VICTORY ACHIEVED!</strong>
-            </div>
-            <button id="btn-restart-victory" class="btn-action">EXORCISE AGAIN</button>
-        </div>
-    </div>
-
-    <!-- Defeat Modal -->
-    <div id="defeat-modal" class="modal-backdrop">
-        <div class="modal-content">
-            <div class="modal-title defeat-title">&#9760; DEFEAT &#9760;</div>
-            <div class="modal-desc">
-                Your limitless barrier collapsed under the cursed demon's assault.<br><br>
-                Restore your energy and try again.
-            </div>
-            <button id="btn-restart-defeat" class="btn-action">RETRY BATTLE</button>
-        </div>
-    </div>
-
-    <!-- Initialize Game -->
-    <script type="module">
-        import { initGame } from './src/main.js';
-        window.addEventListener('DOMContentLoaded', initGame);
+    <script
+        type="importmap"
+    >
+    {
+        "imports": {
+            "three": "https://cdn.jsdelivr.net/npm/three@0.180.0/build/three.module.js",
+            "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.180.0/examples/jsm/"
+        }
+    }
     </script>
+
+    <script
+        defer
+        src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"
+    ></script>
+
+    <script
+        defer
+        src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"
+    ></script>
+</head>
+
+<body>
+
+    <div id="game">
+
+        <div id="topbar">
+
+            <div class="brand">
+                <span class="brand-icon">S</span>
+
+                <div>
+                    <h1>SHADOWBORN</h1>
+                    <p>AWAKENING PROTOCOL</p>
+                </div>
+            </div>
+
+            <div class="rank">
+                <span>HUNTER RANK</span>
+                <strong>SSS</strong>
+            </div>
+
+        </div>
+
+        <div id="hud">
+
+            <section class="hud-card">
+
+                <div class="hud-label">
+                    <span>PLAYER HP</span>
+                    <span id="hpText">100 / 100</span>
+                </div>
+
+                <div class="bar">
+                    <div id="hpBar" class="bar-fill hp-fill"></div>
+                </div>
+
+                <div class="hud-label energy-label">
+                    <span>CURSED ENERGY</span>
+                    <span id="energyText">100 / 100</span>
+                </div>
+
+                <div class="bar">
+                    <div
+                        id="energyBar"
+                        class="bar-fill energy-fill"
+                    ></div>
+                </div>
+
+            </section>
+
+            <section class="enemy-card">
+
+                <div class="hud-label">
+                    <span>CURSED VANGUARD</span>
+                    <span id="enemyHpText">100 / 100</span>
+                </div>
+
+                <div class="bar">
+                    <div
+                        id="enemyHpBar"
+                        class="bar-fill enemy-fill"
+                    ></div>
+                </div>
+
+                <p id="enemyStatus">HOSTILE DETECTED</p>
+
+            </section>
+
+        </div>
+
+        <div id="center-message">
+            <h2 id="messageTitle">AWAKENING</h2>
+            <p id="messageText">
+                Your cursed energy awaits.
+            </p>
+
+            <button id="startButton">
+                ENTER THE DOMAIN
+            </button>
+        </div>
+
+        <div id="crosshair">
+            <span></span>
+            <span></span>
+            <span></span>
+            <span></span>
+        </div>
+
+        <div id="ability-panel">
+
+            <div class="ability blue-ability">
+                <span class="ability-key">1</span>
+                <strong>BLUE</strong>
+                <small>ATTRACTION</small>
+            </div>
+
+            <div class="ability red-ability">
+                <span class="ability-key">2</span>
+                <strong>RED</strong>
+                <small>REPULSION</small>
+            </div>
+
+            <div class="ability purple-ability">
+                <span class="ability-key">3</span>
+                <strong>HOLLOW PURPLE</strong>
+                <small>ANNIHILATION</small>
+            </div>
+
+            <div class="ability infinity-ability">
+                <span class="ability-key">Q</span>
+                <strong>INFINITY</strong>
+                <small>DEFENSE</small>
+            </div>
+
+        </div>
+
+        <div id="controls-panel">
+
+            <p><strong>W A S D</strong> — MOVE</p>
+            <p><strong>SHIFT</strong> — SPRINT</p>
+            <p><strong>CLICK</strong> — PUNCH</p>
+            <p><strong>SPACE</strong> — DODGE</p>
+            <p><strong>1 / 2 / 3</strong> — TECHNIQUES</p>
+            <p><strong>Q</strong> — INFINITY</p>
+
+        </div>
+
+        <div id="camera-panel">
+
+            <div class="camera-heading">
+                <span>GESTURE INTERFACE</span>
+                <span id="cameraStatus">OFFLINE</span>
+            </div>
+
+            <video
+                id="webcam"
+                autoplay
+                muted
+                playsinline
+            ></video>
+
+            <div id="gestureText">
+                Keyboard controls active
+            </div>
+
+            <button id="cameraButton">
+                ENABLE WEBCAM
+            </button>
+
+        </div>
+
+        <div id="event-log"></div>
+
+        <div id="footer">
+            SHADOWBORN // CURSED ENERGY COMBAT SYSTEM
+        </div>
+
+    </div>
+
+    <script type="module" src="./game.js"></script>
+
 </body>
 </html>
